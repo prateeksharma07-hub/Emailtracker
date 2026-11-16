@@ -173,10 +173,27 @@ export default function App() {
   };
 
   const handleTriggerSync = async (opts) => {
-    const res = await triggerSync(opts || { maxResults: 20 });
+    setCurrentPage(1);
+    const res = await triggerSync(opts || { maxResults: 50 });
     fetchEmails();
     fetchAnalytics();
     return res;
+  };
+
+  const handleCategoryChange = (catId) => {
+    setSelectedCategory(catId);
+    setCurrentPage(1);
+    setSelectedEmail(null);
+  };
+
+  const handleSearchChange = (query) => {
+    setSearchQuery(query);
+    setCurrentPage(1);
+  };
+
+  const handlePriorityChange = (priority) => {
+    setPriorityFilter(priority);
+    setCurrentPage(1);
   };
 
   const categories = [
@@ -501,11 +518,11 @@ export default function App() {
                 selectedEmailId={selectedEmail?.id}
                 onSelectEmail={handleSelectEmail}
                 searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
+                setSearchQuery={handleSearchChange}
                 priorityFilter={priorityFilter}
-                setPriorityFilter={setPriorityFilter}
+                setPriorityFilter={handlePriorityChange}
                 selectedCategory={selectedCategory}
-                setSelectedCategory={setSelectedCategory}
+                setSelectedCategory={handleCategoryChange}
                 categories={categories}
                 isLoading={isLoadingEmails}
                 pagination={pagination}
