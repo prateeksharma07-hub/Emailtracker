@@ -25,7 +25,8 @@ import {
   CheckSquare, 
   KeyRound,
   Settings,
-  Layers
+  X,
+  AlertCircle
 } from 'lucide-react';
 
 import EmailList from './components/inbox/EmailList';
@@ -38,7 +39,21 @@ import ActivityLogsView from './components/logs/ActivityLogsView';
 import SettingsModal from './components/settings/SettingsModal';
 
 export default function App() {
-  const { account, isConnected, isSyncing, serverStatus, triggerSync } = useAuth();
+  const { 
+    account, 
+    isConnected, 
+    isDemoMode, 
+    isLiveMode, 
+    isSyncing, 
+    syncStatus, 
+    lastSyncedAt, 
+    authNotification, 
+    clearAuthNotification, 
+    triggerSync, 
+    connectGmail, 
+    disconnectAccount 
+  } = useAuth();
+  
   const { theme, toggleTheme } = useTheme();
 
   // Navigation & View States
@@ -46,6 +61,8 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
   // Data States
   const [emails, setEmails] = useState([]);
@@ -55,7 +72,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
 
-  // Fetch Emails with active filters
+  // Fetch Emails with active filters & pagination
   const fetchEmails = useCallback(async () => {
     try {
       setIsLoadingEmails(true);
@@ -69,18 +86,23 @@ export default function App() {
       if (searchQuery) {
         params.append('search', searchQuery);
       }
+      params.append('page', currentPage.toString());
+      params.append('limit', '20');
 
       const res = await fetch(`/api/emails?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setEmails(data.emails || []);
+        if (data.pagination) {
+          setPagination(data.pagination);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch emails', err);
     } finally {
       setIsLoadingEmails(false);
     }
-  }, [selectedCategory, priorityFilter, searchQuery]);
+  }, [selectedCategory, priorityFilter, searchQuery, currentPage]);
 
   // Fetch summary analytics
   const fetchAnalytics = useCallback(async () => {
@@ -100,6 +122,11 @@ export default function App() {
     fetchEmails();
     fetchAnalytics();
   }, [fetchEmails, fetchAnalytics, isSyncing]);
+
+  // Reset page when category or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCategory, priorityFilter, searchQuery]);
 
   // Load single email detail
   const handleSelectEmail = async (email) => {
@@ -155,8 +182,18 @@ export default function App() {
     }
   };
 
+  const formatLastSynced = (dateStr) => {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffSec = Math.round((now - date) / 1000);
+    if (diffSec < 60) return 'Just now';
+    if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const categories = [
-    { id: 'all', label: 'All Messages', icon: Inbox, count: analyticsData?.metrics?.totalEmails || emails.length },
+    { id: 'all', label: 'All Messages', icon: Inbox, count: analyticsData?.metrics?.totalEmails || pagination.total },
     { id: 'Urgent', label: 'Urgent', icon: Flame, count: analyticsData?.categories?.Urgent || 0, badgeClass: 'badge-urgent' },
     { id: 'Work', label: 'Work', icon: Briefcase, count: analyticsData?.categories?.Work || 0, badgeClass: 'badge-work' },
     { id: 'Meeting', label: 'Meetings', icon: Calendar, count: analyticsData?.categories?.Meeting || 0, badgeClass: 'badge-meeting' },
@@ -200,33 +237,29 @@ export default function App() {
           {/* Right Action Controls */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             
-            {/* Gemini Model Engine Status */}
-            <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Gemini 3.5 Active</span>
-            </div>
-
-            {/* Zero-Leak Shield Status */}
-            <div className="hidden md:flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800/60" title="Zero sensitive bytes sent to external AI">
-              <ShieldCheck className="w-3.5 h-3.5 text-violet-500" />
-              <span>Privacy Shield</span>
-            </div>
-
-            {/* Account Status Pill */}
-            {isConnected ? (
+            {/* Live Gmail vs Demo Mode Indicator */}
+            {isLiveMode ? (
               <div 
                 onClick={() => setIsSettingsOpen(true)}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800/60 cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
-                title="Account Settings & OAuth Status"
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 transition-colors"
+                title="Live Gmail Connected - Click for settings"
               >
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="truncate max-w-[120px] sm:max-w-[150px] font-mono">
-                  {account?.email}
-                </span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-bold">Live:</span>
+                <span className="truncate max-w-[110px] sm:max-w-[140px] font-mono">{account.email}</span>
+              </div>
+            ) : isDemoMode ? (
+              <div 
+                onClick={() => setIsSettingsOpen(true)}
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 cursor-pointer hover:bg-amber-100 transition-colors"
+                title="Demo Evaluation Mode - Click to connect real Gmail"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span className="font-bold">Demo Mode</span>
               </div>
             ) : (
               <button
-                onClick={() => setIsSettingsOpen(true)}
+                onClick={connectGmail}
                 className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md transition-all cursor-pointer"
               >
                 <KeyRound className="w-3.5 h-3.5 text-amber-300" />
@@ -234,18 +267,19 @@ export default function App() {
               </button>
             )}
 
-            {/* Sync Trigger */}
+            {/* Manual Sync Now Button */}
             <button
-              onClick={triggerSync}
-              disabled={isSyncing}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              onClick={() => triggerSync({ maxResults: 20 })}
+              disabled={isSyncing || !isConnected}
+              className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 isSyncing
                   ? 'bg-violet-100 dark:bg-violet-950 text-violet-600'
                   : 'bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-700 dark:text-slate-300'
               }`}
-              title="Sync Inbox"
+              title={`Last synced: ${formatLastSynced(lastSyncedAt)}`}
             >
-              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
             </button>
 
             {/* Settings Trigger */}
@@ -295,7 +329,7 @@ export default function App() {
                 <span>Smart Inbox</span>
               </div>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${activeTab === 'inbox' ? 'bg-white/20' : 'bg-slate-200 dark:bg-white/10'}`}>
-                {analyticsData?.metrics?.totalEmails || emails.length}
+                {analyticsData?.metrics?.totalEmails || pagination.total}
               </span>
             </button>
 
@@ -405,15 +439,47 @@ export default function App() {
               <span>Human Approval Guard</span>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              MailMind never sends, forwards, or deletes emails autonomously. Every dispatch requires explicit human confirmation.
+              Minimum scope policy: MailMind uses <code className="font-mono text-emerald-600">gmail.compose</code> to create drafts. Zero emails are sent autonomously.
             </p>
           </div>
 
         </aside>
 
         {/* Center Main Stage Content */}
-        <main className="flex-1 space-y-6 min-w-0">
-          
+        <main className="flex-1 space-y-5 min-w-0">
+
+          {/* Feedback & OAuth Notification Banners */}
+          {authNotification && (
+            <div className={`p-4 rounded-2xl text-xs flex items-center justify-between border ${
+              authNotification.type === 'error'
+                ? 'bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-300'
+                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {authNotification.type === 'error' ? (
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span className="font-semibold">{authNotification.message}</span>
+              </div>
+              <button
+                onClick={clearAuthNotification}
+                className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Sync Status Banner */}
+          {syncStatus && syncStatus.state === 'success' && (
+            <div className="p-3 rounded-2xl text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+              <span>{syncStatus.message}</span>
+            </div>
+          )}
+
           {/* Metric Highlights Strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             
@@ -425,7 +491,9 @@ export default function App() {
               <div className="text-2xl font-black text-slate-900 dark:text-white">
                 {analyticsData?.metrics?.totalEmails ?? 0}
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Stored in local SQLite</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {isLiveMode ? 'Live Gmail Messages' : 'Sample Evaluation Inbox'}
+              </p>
             </div>
 
             <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
@@ -452,13 +520,13 @@ export default function App() {
 
             <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Drafts to Review</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Drafts in Queue</span>
                 <Send className="w-4 h-4 text-emerald-500" />
               </div>
               <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
                 {analyticsData?.metrics?.pendingDrafts ?? 0}
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Awaiting human send</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Awaiting human review</p>
             </div>
 
           </div>
@@ -493,6 +561,8 @@ export default function App() {
                 priorityFilter={priorityFilter}
                 setPriorityFilter={setPriorityFilter}
                 isLoading={isLoadingEmails}
+                pagination={pagination}
+                onPageChange={(p) => setCurrentPage(p)}
               />
             )
           )}

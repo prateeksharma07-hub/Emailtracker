@@ -1,24 +1,30 @@
 import express from 'express';
 import { db } from '../db/database.js';
+import { getActiveAccount } from '../services/oauthService.js';
 
 const router = express.Router();
 
 /**
  * GET /api/analytics
- * Returns comprehensive analytics metrics for the dashboard
+ * Returns comprehensive analytics metrics for the dashboard associated with the active account
  */
 router.get('/', (req, res) => {
   try {
-    const totalEmails = db.prepare('SELECT COUNT(*) as count FROM emails').get()?.count || 0;
-    const unreadEmails = db.prepare('SELECT COUNT(*) as count FROM emails WHERE is_read = 0').get()?.count || 0;
-    const sensitiveEmails = db.prepare('SELECT COUNT(*) as count FROM emails WHERE is_sensitive = 1').get()?.count || 0;
+    const activeAccount = getActiveAccount();
+    const accountFilter = activeAccount ? 'WHERE account_id = ?' : 'WHERE 1=0';
+    const params = activeAccount ? [activeAccount.id] : [];
+
+    const totalEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter}`).get(...params)?.count || 0;
+    const unreadEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter} AND is_read = 0`).get(...params)?.count || 0;
+    const sensitiveEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter} AND is_sensitive = 1`).get(...params)?.count || 0;
     
     // Categories breakdown
     const categoryRows = db.prepare(`
       SELECT category, COUNT(*) as count 
       FROM emails 
+      ${accountFilter}
       GROUP BY category
-    `).all();
+    `).all(...params);
 
     const categoryMap = {
       Urgent: 0,
@@ -41,8 +47,9 @@ router.get('/', (req, res) => {
     const priorityRows = db.prepare(`
       SELECT priority_score, COUNT(*) as count 
       FROM emails 
+      ${accountFilter}
       GROUP BY priority_score
-    `).all();
+    `).all(...params);
     const priorityMap = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     priorityRows.forEach(row => {
       if (priorityMap[row.priority_score] !== undefined) {
@@ -51,20 +58,27 @@ router.get('/', (req, res) => {
     });
 
     // Drafts metrics
-    const pendingDrafts = db.prepare("SELECT COUNT(*) as count FROM drafts WHERE status = 'PENDING_APPROVAL'").get()?.count || 0;
-    const sentDrafts = db.prepare("SELECT COUNT(*) as count FROM drafts WHERE status = 'SENT'").get()?.count || 0;
+    const draftFilter = activeAccount 
+      ? 'WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)' 
+      : 'WHERE 1=0';
+    const pendingDrafts = db.prepare(`SELECT COUNT(*) as count FROM drafts ${draftFilter} AND status = 'PENDING_APPROVAL'`).get(...params)?.count || 0;
+    const sentDrafts = db.prepare(`SELECT COUNT(*) as count FROM drafts ${draftFilter} AND status IN ('SENT', 'CREATED_IN_GMAIL', 'APPROVED')`).get(...params)?.count || 0;
 
     // Tasks metrics
-    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get()?.count || 0;
-    const pendingTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE is_completed = 0').get()?.count || 0;
-    const completedTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE is_completed = 1').get()?.count || 0;
+    const taskFilter = activeAccount 
+      ? 'WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)' 
+      : 'WHERE 1=0';
+    const totalTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter}`).get(...params)?.count || 0;
+    const pendingTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter} AND is_completed = 0`).get(...params)?.count || 0;
+    const completedTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter} AND is_completed = 1`).get(...params)?.count || 0;
 
-    // Estimated hours saved (approx. 4.5 minutes per AI analyzed & drafted email)
+    // Estimated hours saved (approx. 4.5 minutes per AI analyzed email)
     const minutesSaved = Math.round(totalEmails * 4.5);
     const hoursSaved = (minutesSaved / 60).toFixed(1);
 
     res.json({
       success: true,
+      account: activeAccount,
       metrics: {
         totalEmails,
         unreadEmails,

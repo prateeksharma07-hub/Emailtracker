@@ -1,23 +1,29 @@
 import express from 'express';
 import { db } from '../db/database.js';
+import { getActiveAccount } from '../services/oauthService.js';
 
 const router = express.Router();
 
 /**
  * GET /api/tasks
- * Lists extracted tasks from emails
+ * Lists extracted tasks from emails for active account
  */
 router.get('/', (req, res) => {
   try {
+    const activeAccount = getActiveAccount();
+    if (!activeAccount) {
+      return res.json({ success: true, tasks: [] });
+    }
+
     const { completed } = req.query;
     let sql = `
       SELECT t.*, e.subject as email_subject, e.sender as email_sender, 
              e.sender_name as email_sender_name, e.category, e.priority_score
       FROM tasks t
-      LEFT JOIN emails e ON t.email_id = e.id
-      WHERE 1=1
+      INNER JOIN emails e ON t.email_id = e.id
+      WHERE e.account_id = ?
     `;
-    const params = [];
+    const params = [activeAccount.id];
 
     if (completed !== undefined) {
       sql += ' AND t.is_completed = ?';

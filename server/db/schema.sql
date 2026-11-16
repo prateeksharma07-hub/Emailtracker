@@ -93,3 +93,9 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 7. OAuth 2.0 CSRF Protection States
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);

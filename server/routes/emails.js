@@ -7,17 +7,29 @@ const router = express.Router();
 
 /**
  * GET /api/emails
- * Lists emails with category, search, priority, and sensitive filters
+ * Lists emails with category, search, priority, sensitive filters, and pagination.
+ * ISOLATION: Associates all queries with the active account_id.
  */
 router.get('/', (req, res) => {
   try {
-    const { category, search, priority, sensitive, limit = 50, page = 1 } = req.query;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const activeAccount = getActiveAccount();
+    if (!activeAccount) {
+      return res.json({
+        success: true,
+        emails: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 }
+      });
+    }
 
-    let sql = 'SELECT * FROM emails WHERE 1=1';
-    const params = [];
+    const { category, search, priority, sensitive, limit = 20, page = 1 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
 
-    if (category && category !== 'All') {
+    let sql = 'SELECT * FROM emails WHERE account_id = ?';
+    const params = [activeAccount.id];
+
+    if (category && category !== 'All' && category !== 'all') {
       sql += ' AND category = ?';
       params.push(category);
     }
@@ -37,12 +49,12 @@ router.get('/', (req, res) => {
       params.push(term, term, term, term, term);
     }
 
-    // Get total matching count
+    // Total matching count
     const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
     const totalCount = db.prepare(countSql).get(...params)?.total || 0;
 
     sql += ' ORDER BY date_received DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit, 10), offset);
+    params.push(limitNum, offset);
 
     const emails = db.prepare(sql).all(...params);
 
@@ -59,12 +71,13 @@ router.get('/', (req, res) => {
 
     res.json({
       success: true,
+      account: activeAccount,
       emails: emailsWithMeta,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page: pageNum,
+        limit: limitNum,
         total: totalCount,
-        totalPages: Math.ceil(totalCount / parseInt(limit, 10))
+        totalPages: Math.ceil(totalCount / limitNum)
       }
     });
   } catch (err) {
@@ -78,9 +91,16 @@ router.get('/', (req, res) => {
  */
 router.get('/:id', (req, res) => {
   try {
+    const activeAccount = getActiveAccount();
     const email = db.prepare('SELECT * FROM emails WHERE id = ?').get(req.params.id);
+    
     if (!email) {
       return res.status(404).json({ success: false, error: 'Email not found' });
+    }
+
+    // Verify user owns the email record
+    if (activeAccount && email.account_id && email.account_id !== activeAccount.id) {
+      return res.status(403).json({ success: false, error: 'Access denied to this email record.' });
     }
 
     const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ? ORDER BY created_at ASC').all(email.id);
@@ -101,7 +121,7 @@ router.get('/:id', (req, res) => {
 
 /**
  * POST /api/emails/sync
- * Triggers Gmail API synchronization
+ * Manually triggers Gmail API synchronization (latest 20 emails)
  */
 router.post('/sync', async (req, res) => {
   try {
@@ -113,12 +133,26 @@ router.post('/sync', async (req, res) => {
       });
     }
 
-    const maxResults = parseInt(req.body.maxResults, 10) || 15;
-    const result = await syncGmailInbox(activeAccount.id, maxResults);
+    const maxResults = parseInt(req.body.maxResults, 10) || 20;
+    const pageToken = req.body.pageToken || null;
+
+    const result = await syncGmailInbox(activeAccount.id, { maxResults, pageToken });
     res.json(result);
   } catch (err) {
-    console.error('[Sync Route Error]', err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[Sync Route Error]', err.message);
+
+    if (err.code === 'TOKEN_EXPIRED') {
+      return res.status(401).json({
+        success: false,
+        code: 'TOKEN_EXPIRED',
+        error: err.message
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Synchronization failed.'
+    });
   }
 });
 

@@ -1,25 +1,30 @@
 import express from 'express';
 import { db } from '../db/database.js';
-import { sendApprovedEmail } from '../services/gmailService.js';
+import { createGmailDraft } from '../services/gmailService.js';
 import { getActiveAccount } from '../services/oauthService.js';
 
 const router = express.Router();
 
 /**
  * GET /api/drafts
- * Lists all drafts with associated email information
+ * Lists all drafts with associated email information for the active account
  */
 router.get('/', (req, res) => {
   try {
+    const activeAccount = getActiveAccount();
+    if (!activeAccount) {
+      return res.json({ success: true, drafts: [] });
+    }
+
     const { status } = req.query;
     let sql = `
       SELECT d.*, e.sender as original_sender, e.sender_name as original_sender_name, 
              e.subject as original_subject, e.category, e.priority_score
       FROM drafts d
-      LEFT JOIN emails e ON d.email_id = e.id
-      WHERE 1=1
+      INNER JOIN emails e ON d.email_id = e.id
+      WHERE e.account_id = ?
     `;
-    const params = [];
+    const params = [activeAccount.id];
 
     if (status) {
       sql += ' AND d.status = ?';
@@ -89,75 +94,59 @@ router.put('/:id', (req, res) => {
 });
 
 /**
- * POST /api/drafts/:id/send
+ * POST /api/drafts/:id/approve
  * STRICT HUMAN-IN-THE-LOOP APPROVAL ENDPOINT
- * Dispatches draft only with explicit user confirmation
+ * Saves approved draft in Gmail Drafts (using minimum permissions `gmail.compose`).
+ * Does NOT send or auto-forward emails.
  */
-router.post('/:id/send', async (req, res) => {
+router.post('/:id/approve', async (req, res) => {
   const { confirmHumanApproval, overrides } = req.body;
 
-  // SAFETY ENFORCEMENT: Never send without explicit user approval
   if (!confirmHumanApproval) {
     return res.status(400).json({
       success: false,
-      error: 'SAFETY POLICY VIOLATION: Explicit human approval (confirmHumanApproval: true) is strictly required before sending any email.'
+      error: 'SAFETY POLICY VIOLATION: Explicit human approval (confirmHumanApproval: true) is required before saving or exporting any draft.'
     });
   }
 
   try {
-    const draft = db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id);
-    if (!draft) {
-      return res.status(404).json({ success: false, error: 'Draft not found' });
-    }
-
-    const activeAccount = getActiveAccount();
-
-    // If real connected Google account with real tokens exists:
-    if (activeAccount && activeAccount.access_token && activeAccount.access_token !== 'mock_token') {
-      const sendResult = await sendApprovedEmail(draft.id, overrides || {});
-      return res.json({
-        success: true,
-        dispatched: 'GMAIL_API',
-        details: sendResult
-      });
-    }
-
-    // Demo Mode dispatch simulation (for testing before Google credentials are set)
-    const to = overrides?.to_address || draft.to_address;
-    const subject = overrides?.subject || draft.subject;
-    const body = overrides?.reply_body || draft.reply_body;
-
-    db.prepare(`
-      UPDATE drafts 
-      SET status = 'SENT', 
-          approved_at = CURRENT_TIMESTAMP, 
-          sent_at = CURRENT_TIMESTAMP,
-          to_address = ?,
-          subject = ?,
-          reply_body = ?
-      WHERE id = ?
-    `).run(to, subject, body, draft.id);
-
-    // Record activity log
-    db.prepare(`
-      INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      'log_' + Date.now(),
-      'DRAFT_APPROVED_SENT',
-      'INFO',
-      `Human approved & sent email to ${to}: "${subject}"`,
-      JSON.stringify({ draftId: draft.id, to, subject, mode: 'LOCAL_SIMULATED_SAFE' })
-    );
-
+    const result = await createGmailDraft(req.params.id, overrides || {});
     res.json({
       success: true,
-      dispatched: 'LOCAL_VERIFIED',
-      message: `Email successfully approved and dispatched to ${to}.`,
-      draft: db.prepare('SELECT * FROM drafts WHERE id = ?').get(draft.id)
+      ...result,
+      draft: db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id)
     });
   } catch (err) {
-    console.error('[Send Draft Route Error]', err);
+    console.error('[Draft Approval Error]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/drafts/:id/send
+ * Alias for approve with backward compatibility, enforcing NO SEND rule
+ */
+router.post('/:id/send', async (req, res) => {
+  const { confirmHumanApproval, overrides } = req.body;
+
+  if (!confirmHumanApproval) {
+    return res.status(400).json({
+      success: false,
+      error: 'SAFETY POLICY VIOLATION: Explicit human approval (confirmHumanApproval: true) is strictly required.'
+    });
+  }
+
+  try {
+    const result = await createGmailDraft(req.params.id, overrides || {});
+    res.json({
+      success: true,
+      dispatched: 'SAVED_AS_GMAIL_DRAFT',
+      message: 'Draft authorized by user and successfully created in Gmail Drafts. (Zero auto-send policy enforced).',
+      ...result,
+      draft: db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id)
+    });
+  } catch (err) {
+    console.error('[Draft Send/Approve Error]', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

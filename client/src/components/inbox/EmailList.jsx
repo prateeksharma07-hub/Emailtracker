@@ -9,7 +9,9 @@ import {
   Mail, 
   Inbox, 
   Search,
-  Filter
+  Filter,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 export default function EmailList({ 
@@ -20,7 +22,9 @@ export default function EmailList({
   setSearchQuery, 
   priorityFilter, 
   setPriorityFilter,
-  isLoading 
+  isLoading,
+  pagination = { page: 1, limit: 20, total: 0, totalPages: 1 },
+  onPageChange
 }) {
 
   const getCategoryBadgeClass = (category) => {
@@ -45,6 +49,9 @@ export default function EmailList({
     if (diffHours < 24) return `${diffHours}h ago`;
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
+
+  const startCount = pagination.total > 0 ? (pagination.page - 1) * pagination.limit + 1 : 0;
+  const endCount = Math.min(pagination.page * pagination.limit, pagination.total);
 
   return (
     <div className="space-y-4">
@@ -81,7 +88,7 @@ export default function EmailList({
       {isLoading && (
         <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
           <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <span>Loading intelligent email feed...</span>
+          <span>Synchronizing and categorizing messages...</span>
         </div>
       )}
 
@@ -95,7 +102,7 @@ export default function EmailList({
             No matching emails found
           </h4>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Try adjusting your search query or category filters.
+            Try adjusting your search query, or click "Sync Now" to fetch live emails from Gmail.
           </p>
         </div>
       )}
@@ -159,7 +166,7 @@ export default function EmailList({
                   {Boolean(email.is_sensitive) && (
                     <span className="flex items-center space-x-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20" title="Quarantined locally to protect sensitive data">
                       <ShieldAlert className="w-3 h-3" />
-                      <span>Shielded</span>
+                      <span>Shielded ({email.sensitive_type || 'PII'})</span>
                     </span>
                   )}
 
@@ -175,13 +182,17 @@ export default function EmailList({
                 {email.subject}
               </h4>
 
-              {/* AI Summary Highlight Box */}
-              {email.summary && (
+              {/* Snippet / AI Summary Highlight Box */}
+              {email.summary ? (
                 <div className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-white/5 text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-2.5 flex items-start space-x-2">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
                   <p className="line-clamp-2">{email.summary}</p>
                 </div>
-              )}
+              ) : email.snippet ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-2.5">
+                  {email.snippet}
+                </p>
+              ) : null}
 
               {/* Bottom Tags (Tasks & Drafts count) */}
               <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
@@ -196,7 +207,7 @@ export default function EmailList({
                   {email.drafts_count > 0 && (
                     <span className="flex items-center space-x-1 text-violet-600 dark:text-violet-400 font-semibold">
                       <Send className="w-3.5 h-3.5" />
-                      <span>{email.drafts_count} reply drafts</span>
+                      <span>{email.drafts_count} drafts</span>
                     </span>
                   )}
                 </div>
@@ -210,6 +221,39 @@ export default function EmailList({
           );
         })}
       </div>
+
+      {/* Pagination Controls */}
+      {pagination.total > 0 && pagination.totalPages > 1 && (
+        <div className="glass-card rounded-2xl p-3.5 border border-slate-200/80 dark:border-white/10 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span>
+            Showing <strong className="text-slate-900 dark:text-white">{startCount}</strong> to <strong className="text-slate-900 dark:text-white">{endCount}</strong> of <strong className="text-slate-900 dark:text-white">{pagination.total}</strong> emails
+          </span>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => onPageChange && onPageChange(pagination.page - 1)}
+              disabled={pagination.page <= 1}
+              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Previous</span>
+            </button>
+
+            <span className="px-2 font-mono font-bold text-slate-900 dark:text-white">
+              {pagination.page} / {pagination.totalPages}
+            </span>
+
+            <button
+              onClick={() => onPageChange && onPageChange(pagination.page + 1)}
+              disabled={pagination.page >= pagination.totalPages}
+              className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

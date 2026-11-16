@@ -1,12 +1,18 @@
 import express from 'express';
-import { getAuthUrl, handleOAuthCallback, getActiveAccount, disconnectAccount, isOAuthConfigured } from '../services/oauthService.js';
+import { 
+  getAuthUrl, 
+  handleOAuthCallback, 
+  getActiveAccount, 
+  disconnectAccount, 
+  isOAuthConfigured 
+} from '../services/oauthService.js';
 import { seedDemoEmails } from '../services/gmailService.js';
 
 const router = express.Router();
 
 /**
  * GET /api/auth/status
- * Returns connection state and configuration diagnostics
+ * Returns current authenticated state, active account (tokens stripped), and system configuration.
  */
 router.get('/status', (req, res) => {
   try {
@@ -21,10 +27,12 @@ router.get('/status', (req, res) => {
     res.json({
       success: true,
       authenticated: Boolean(activeAccount),
+      isDemo: activeAccount?.is_demo || false,
       account: activeAccount,
       config: {
         oauthConfigured: isGoogleConfigured,
-        geminiActive: isGeminiActive
+        geminiActive: isGeminiActive,
+        redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5001/api/auth/callback'
       }
     });
   } catch (err) {
@@ -34,51 +42,66 @@ router.get('/status', (req, res) => {
 
 /**
  * GET /api/auth/url
- * Returns Google OAuth 2.0 authorization URL
+ * Generates Google OAuth 2.0 consent URL with CSRF protection state parameter
  */
 router.get('/url', (req, res) => {
   try {
-    const url = getAuthUrl();
-    res.json({ success: true, url });
+    const { url, state } = getAuthUrl();
+    res.json({ success: true, url, state });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(400).json({ 
+      success: false, 
+      error: err.message,
+      configured: isOAuthConfigured()
+    });
   }
 });
 
 /**
  * GET /api/auth/callback
- * Google OAuth redirect endpoint
+ * Google OAuth redirect endpoint with strict CSRF state validation
  */
 router.get('/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, state, error, error_description } = req.query;
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
 
+  // 1. Check for user-rejected consent or Google authorization error
   if (error) {
-    console.error('[OAuth Callback Error]', error);
-    return res.redirect(`${clientUrl}?auth_error=${encodeURIComponent(error)}`);
+    console.warn('[OAuth Callback] Google authorization error:', error, error_description || '');
+    const userMessage = error === 'access_denied' 
+      ? 'Gmail access authorization was canceled or denied.' 
+      : error_description || error;
+    return res.redirect(`${clientUrl}?auth_error=${encodeURIComponent(userMessage)}`);
   }
 
+  // 2. Validate code parameter
   if (!code) {
-    return res.redirect(`${clientUrl}?auth_error=missing_code`);
+    return res.redirect(`${clientUrl}?auth_error=missing_authorization_code`);
+  }
+
+  // 3. Validate state parameter to prevent CSRF attacks
+  if (!state) {
+    console.warn('[OAuth Callback] Missing CSRF state parameter');
+    return res.redirect(`${clientUrl}?auth_error=csrf_validation_failed`);
   }
 
   try {
-    await handleOAuthCallback(code);
-    res.redirect(`${clientUrl}?auth=success`);
+    const account = await handleOAuthCallback(code, state);
+    res.redirect(`${clientUrl}?auth=success&account=${encodeURIComponent(account.email)}`);
   } catch (err) {
-    console.error('[OAuth Token Exchange Error]', err);
+    console.error('[OAuth Token Exchange Error]', err.message);
     res.redirect(`${clientUrl}?auth_error=${encodeURIComponent(err.message)}`);
   }
 });
 
 /**
  * POST /api/auth/disconnect
- * Disconnects the active account
+ * Disconnects the active Gmail account and removes credentials
  */
-router.post('/disconnect', (req, res) => {
+router.post('/disconnect', async (req, res) => {
   try {
     const { accountId } = req.body;
-    const result = disconnectAccount(accountId);
+    const result = await disconnectAccount(accountId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

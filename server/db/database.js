@@ -16,10 +16,6 @@ export const db = new DatabaseSync(dbPath);
  */
 export function initDb() {
   try {
-    // Enable Write-Ahead Logging for high concurrency and zero locking
-    db.exec('PRAGMA journal_mode = WAL;');
-    db.exec('PRAGMA synchronous = NORMAL;');
-
     const schemaPath = path.resolve(__dirname, 'schema.sql');
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
 
@@ -49,3 +45,4 @@ export function initDb() {
 }
 
 export default db;
+

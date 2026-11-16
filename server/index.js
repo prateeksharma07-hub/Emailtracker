@@ -5,15 +5,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initDb, db } from './db/database.js';
 
-// Import route modules
-import authRouter from './routes/auth.js';
-import emailsRouter from './routes/emails.js';
-import aiRouter from './routes/ai.js';
-import draftsRouter from './routes/drafts.js';
-import tasksRouter from './routes/tasks.js';
-import analyticsRouter from './routes/analytics.js';
-import logsRouter from './routes/logs.js';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -86,21 +77,11 @@ app.get('/api', (req, res) => {
       '/api/emails',
       '/api/ai',
       '/api/drafts',
-      '/api/tasks',
       '/api/analytics',
       '/api/logs'
     ]
   });
 });
-
-// Mount modular API routers
-app.use('/api/auth', authRouter);
-app.use('/api/emails', emailsRouter);
-app.use('/api/ai', aiRouter);
-app.use('/api/drafts', draftsRouter);
-app.use('/api/tasks', tasksRouter);
-app.use('/api/analytics', analyticsRouter);
-app.use('/api/logs', logsRouter);
 
 // Central error handler
 app.use((err, req, res, next) => {
@@ -121,3 +102,4 @@ app.listen(PORT, () => {
   console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
   console.log(`===============================================`);
 });
+
