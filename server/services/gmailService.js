@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { db } from '../db/database.js';
 import { getAuthenticatedClient, getActiveAccount } from './oauthService.js';
-import { analyzeEmail } from './geminiService.js';
+import { analyzeEmail, fastClassifyEmail } from './geminiService.js';
 import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from './sanitizationService.js';
 
 /**
@@ -126,6 +126,9 @@ export function normalizeGmailMessage(rawMessage, accountId) {
  * @param {object} options - { maxResults: 20, pageToken: null }
  * @returns {Promise<object>} Sync summary
  */
+// Global sync mutex to prevent concurrent overlap and hanging
+let isSyncInProgress = false;
+
 export async function syncGmailInbox(accountId, options = {}) {
   const maxResults = options.maxResults || 20;
   const pageToken = options.pageToken || undefined;
@@ -147,179 +150,203 @@ export async function syncGmailInbox(accountId, options = {}) {
     };
   }
 
-  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  console.log(`[Gmail Sync] Fetching recent ${maxResults} messages from Gmail API for: ${account.email}`);
-
-  let listRes;
-  try {
-    listRes = await gmail.users.messages.list({
-      userId: 'me',
-      maxResults,
-      pageToken,
-      q: 'in:inbox'
-    });
-  } catch (apiErr) {
-    console.error('[Gmail API Error] List messages failed:', apiErr.message);
-
-    // Check for expired or revoked token
-    if (apiErr.code === 401 || apiErr.message?.includes('invalid_grant') || apiErr.message?.includes('Token has been expired or revoked')) {
-      const tokenErr = new Error('Your Google session has expired or been revoked. Please reconnect your Gmail account.');
-      tokenErr.code = 'TOKEN_EXPIRED';
-
-      // Log event
-      db.prepare(`
-        INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(
-        'log_' + Date.now(),
-        'OAUTH_TOKEN_EXPIRED',
-        'WARNING',
-        `Google OAuth session expired or revoked for ${account.email}`,
-        JSON.stringify({ accountId: account.id, error: apiErr.message })
-      );
-
-      throw tokenErr;
-    }
-
-    throw apiErr;
+  // Mutex lock
+  if (isSyncInProgress) {
+    console.log('[Gmail Sync] Synchronization already running in background. Returning current state.');
+    return {
+      success: true,
+      mode: 'LIVE',
+      newEmailsCount: 0,
+      isOngoing: true,
+      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ?').get(account.id)?.c || 0,
+      lastSyncedAt: account.last_synced_at || new Date().toISOString()
+    };
   }
 
-  const messageSummaries = listRes.data.messages || [];
-  const nextPageToken = listRes.data.nextPageToken || null;
+  isSyncInProgress = true;
 
-  let newEmailsCount = 0;
-  let skippedDuplicates = 0;
-  let sensitiveCount = 0;
-  let aiProcessedCount = 0;
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    console.log(`[Gmail Sync] Fetching recent ${maxResults} messages from Gmail API for: ${account.email}`);
 
-  for (const item of messageSummaries) {
-    // 1. DUPLICATE PREVENTION: Check if message ID already exists
-    const existing = db.prepare('SELECT id FROM emails WHERE id = ?').get(item.id);
-    if (existing) {
-      skippedDuplicates++;
-      continue; // Skip message already in local database
-    }
-
-    // 2. Fetch full message payload
-    let fullRes;
+    let listRes;
     try {
-      fullRes = await gmail.users.messages.get({
+      listRes = await gmail.users.messages.list({
         userId: 'me',
-        id: item.id,
-        format: 'full'
+        maxResults,
+        pageToken,
+        q: 'in:inbox'
       });
-    } catch (msgErr) {
-      console.warn(`[Gmail Sync] Could not fetch message ${item.id}:`, msgErr.message);
-      continue;
+    } catch (apiErr) {
+      console.error('[Gmail API Error] List messages failed:', apiErr.message);
+
+      if (apiErr.code === 401 || apiErr.message?.includes('invalid_grant') || apiErr.message?.includes('Token has been expired or revoked')) {
+        const tokenErr = new Error('Your Google session has expired or been revoked. Please reconnect your Gmail account.');
+        tokenErr.code = 'TOKEN_EXPIRED';
+        throw tokenErr;
+      }
+      throw apiErr;
     }
 
-    const parsedEmail = normalizeGmailMessage(fullRes.data, account.id);
+    const messageSummaries = listRes.data.messages || [];
+    let newEmailsCount = 0;
+    let skippedDuplicates = 0;
+    let sensitiveCount = 0;
+    let aiProcessedCount = 0;
 
-    // 3. AI Analysis + Zero-Leak Privacy Guard Pipeline
-    const analysis = await analyzeEmail(parsedEmail);
-
-    if (analysis.is_sensitive) {
-      sensitiveCount++;
-    } else {
-      aiProcessedCount++;
-    }
-
-    // 4. Store Email Metadata in SQLite (Idempotent ON CONFLICT ignore to handle concurrent syncs)
-    const insertEmail = db.prepare(`
-      INSERT INTO emails (
-        id, thread_id, account_id, sender, sender_name, recipient, subject,
-        body_text, body_html, snippet, date_received, is_read,
-        is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO NOTHING
-    `);
-
-    insertEmail.run(
-      parsedEmail.id,
-      parsedEmail.thread_id,
-      account.id,
-      parsedEmail.sender,
-      parsedEmail.sender_name,
-      parsedEmail.recipient,
-      parsedEmail.subject,
-      parsedEmail.body_text,
-      parsedEmail.body_html,
-      parsedEmail.snippet,
-      parsedEmail.date_received,
-      parsedEmail.is_read,
-      analysis.is_sensitive ? 1 : 0,
-      analysis.sensitive_type || null,
-      analysis.category,
-      analysis.priority_score,
-      analysis.summary,
-      1
+    // 1. Fast duplicate detection using local SQLite index
+    const existingIds = new Set(
+      db.prepare('SELECT id FROM emails WHERE account_id = ?').all(account.id).map(r => r.id)
     );
 
-    // 5. Save Extracted Action Items if any
-    if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
-      const insertTask = db.prepare(`
-        INSERT INTO tasks (id, email_id, task_title, deadline_date, deadline_text)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-      for (const t of analysis.tasks) {
-        insertTask.run(
-          'task_' + Math.random().toString(36).slice(2, 10),
-          parsedEmail.id,
-          t.task_title,
-          t.deadline_date || null,
-          t.deadline_text || null
-        );
+    const pendingSummaries = [];
+    for (const item of messageSummaries) {
+      if (existingIds.has(item.id)) {
+        skippedDuplicates++;
+      } else {
+        pendingSummaries.push(item);
       }
     }
 
-    // 6. Save AI Reply Drafts if any (Strictly in PENDING_APPROVAL status)
-    if (Array.isArray(analysis.reply_drafts) && analysis.reply_drafts.length > 0) {
-      const insertDraft = db.prepare(`
-        INSERT INTO drafts (id, email_id, to_address, subject, reply_body, tone, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
-      `);
-      for (const d of analysis.reply_drafts) {
-        insertDraft.run(
-          'draft_' + Math.random().toString(36).slice(2, 10),
-          parsedEmail.id,
-          parsedEmail.sender,
-          d.subject || `Re: ${parsedEmail.subject}`,
-          d.reply_body,
-          d.tone || 'Professional'
-        );
+    console.log(`[Gmail Sync] ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel...`);
+
+    // 2. Fetch full message payloads in parallel batches of 5 to avoid blocking
+    const BATCH_SIZE = 5;
+    const parsedEmails = [];
+
+    for (let i = 0; i < pendingSummaries.length; i += BATCH_SIZE) {
+      const chunk = pendingSummaries.slice(i, i + BATCH_SIZE);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(item => gmail.users.messages.get({ userId: 'me', id: item.id, format: 'full' }))
+      );
+
+      for (const res of chunkResults) {
+        if (res.status === 'fulfilled' && res.value?.data) {
+          parsedEmails.push(normalizeGmailMessage(res.value.data, account.id));
+        }
       }
     }
 
-    newEmailsCount++;
+    // 3. High-velocity classification: Deep Gemini analysis for newest messages, fast heuristic for bulk items
+    for (let i = 0; i < parsedEmails.length; i++) {
+      const parsedEmail = parsedEmails[i];
+      let analysis;
+
+      // Deep Gemini analysis on top 5 newest emails to preserve responsiveness
+      if (i < 5) {
+        try {
+          analysis = await analyzeEmail(parsedEmail);
+        } catch (e) {
+          analysis = fastClassifyEmail(parsedEmail);
+        }
+      } else {
+        analysis = fastClassifyEmail(parsedEmail);
+      }
+
+      if (analysis.is_sensitive) {
+        sensitiveCount++;
+      } else {
+        aiProcessedCount++;
+      }
+
+      // 4. Store Email Metadata in SQLite
+      const insertEmail = db.prepare(`
+        INSERT INTO emails (
+          id, thread_id, account_id, sender, sender_name, recipient, subject,
+          body_text, body_html, snippet, date_received, is_read,
+          is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `);
+
+      insertEmail.run(
+        parsedEmail.id,
+        parsedEmail.thread_id,
+        account.id,
+        parsedEmail.sender,
+        parsedEmail.sender_name,
+        parsedEmail.recipient,
+        parsedEmail.subject,
+        parsedEmail.body_text,
+        parsedEmail.body_html,
+        parsedEmail.snippet,
+        parsedEmail.date_received,
+        parsedEmail.is_read,
+        analysis.is_sensitive ? 1 : 0,
+        analysis.sensitive_type || null,
+        analysis.category,
+        analysis.priority_score,
+        analysis.summary,
+        1
+      );
+
+      // 5. Save Extracted Action Items if any
+      if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
+        const insertTask = db.prepare(`
+          INSERT INTO tasks (id, email_id, task_title, deadline_date, deadline_text)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        for (const t of analysis.tasks) {
+          insertTask.run(
+            'task_' + Math.random().toString(36).slice(2, 10),
+            parsedEmail.id,
+            t.task_title,
+            t.deadline_date || null,
+            t.deadline_text || null
+          );
+        }
+      }
+
+      // 6. Save AI Reply Drafts if any
+      if (Array.isArray(analysis.reply_drafts) && analysis.reply_drafts.length > 0) {
+        const insertDraft = db.prepare(`
+          INSERT INTO drafts (id, email_id, to_address, subject, reply_body, tone, status)
+          VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
+        `);
+        for (const d of analysis.reply_drafts) {
+          insertDraft.run(
+            'draft_' + Math.random().toString(36).slice(2, 10),
+            parsedEmail.id,
+            parsedEmail.sender,
+            d.subject || `Re: ${parsedEmail.subject}`,
+            d.reply_body,
+            d.tone || 'Professional'
+          );
+        }
+      }
+
+      newEmailsCount++;
+    }
+
+    // Update account's last_synced_at
+    const now = new Date().toISOString();
+    db.prepare('UPDATE accounts SET last_synced_at = ? WHERE id = ?').run(now, account.id);
+
+    // Log sync event
+    db.prepare(`
+      INSERT INTO activity_logs (id, event_type, severity, message, metadata)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      'log_' + Date.now(),
+      'SYNC_COMPLETED',
+      sensitiveCount > 0 ? 'SECURITY' : 'INFO',
+      `Live inbox sync completed: ${newEmailsCount} new emails saved, ${skippedDuplicates} duplicates skipped. (${aiProcessedCount} AI classified, ${sensitiveCount} shielded)`,
+      JSON.stringify({ accountId: account.id, newEmailsCount, skippedDuplicates, sensitiveCount, aiProcessedCount })
+    );
+
+    return {
+      success: true,
+      mode: 'LIVE',
+      newEmailsCount,
+      skippedDuplicates,
+      sensitiveCount,
+      aiProcessedCount,
+      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ?').get(account.id)?.c || 0,
+      lastSyncedAt: now
+    };
+  } finally {
+    isSyncInProgress = false;
   }
-
-  // Update account's last_synced_at
-  const now = new Date().toISOString();
-  db.prepare('UPDATE accounts SET last_synced_at = ? WHERE id = ?').run(now, account.id);
-
-  // Log sync event
-  db.prepare(`
-    INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    'log_' + Date.now(),
-    'SYNC_COMPLETED',
-    sensitiveCount > 0 ? 'SECURITY' : 'INFO',
-    `Live inbox sync completed: ${newEmailsCount} new emails saved, ${skippedDuplicates} duplicates skipped. (${aiProcessedCount} AI classified, ${sensitiveCount} shielded by Privacy Guard)`,
-    JSON.stringify({ accountId: account.id, newEmailsCount, skippedDuplicates, sensitiveCount, aiProcessedCount })
-  );
-
-  return {
-    success: true,
-    mode: 'LIVE',
-    newEmailsCount,
-    skippedDuplicates,
-    sensitiveCount,
-    aiProcessedCount,
-    nextPageToken,
-    lastSyncedAt: now,
-    totalInbox: db.prepare('SELECT COUNT(*) as count FROM emails WHERE account_id = ?').get(account.id)?.count || 0
-  };
 }
 
 /**

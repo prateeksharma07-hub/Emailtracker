@@ -86,12 +86,19 @@ export function AuthProvider({ children }) {
     setIsSyncing(true);
     setSyncStatus({ state: 'syncing', message: 'Syncing inbox with Gmail...' });
 
+    // Safety timeout prevents UI spinner from hanging indefinitely
+    const safetyTimer = setTimeout(() => {
+      setIsSyncing(false);
+      checkAuthStatus();
+    }, 12000);
+
     try {
       const res = await fetch('/api/emails/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
       });
+      clearTimeout(safetyTimer);
 
       const data = await res.json();
 
