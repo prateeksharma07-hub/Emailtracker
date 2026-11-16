@@ -158,7 +158,17 @@ export async function handleOAuthCallback(code, state) {
 
   stmt.run(accountId, email, name, picture, accessToken, refreshToken, tokenExpiry, scope);
 
-  // 5. Record activity log without exposing sensitive tokens
+  // 5. Clean up demo account so live user sees ONLY their real inbox
+  try {
+    db.prepare("DELETE FROM accounts WHERE id = 'demo_account'").run();
+    db.prepare("DELETE FROM emails WHERE account_id = 'demo_account'").run();
+    db.prepare("DELETE FROM tasks WHERE account_id = 'demo_account'").run();
+    db.prepare("DELETE FROM drafts WHERE account_id = 'demo_account'").run();
+  } catch (cleanErr) {
+    console.warn('[OAuth] Demo cleanup notice:', cleanErr.message);
+  }
+
+  // 6. Record activity log without exposing sensitive tokens
   db.prepare(`
     INSERT INTO activity_logs (id, event_type, severity, message, metadata)
     VALUES (?, ?, ?, ?, ?)

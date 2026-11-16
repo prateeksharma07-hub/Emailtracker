@@ -6,7 +6,7 @@ import {
   disconnectAccount, 
   isOAuthConfigured 
 } from '../services/oauthService.js';
-import { seedDemoEmails } from '../services/gmailService.js';
+import { seedDemoEmails, syncGmailInbox } from '../services/gmailService.js';
 
 const router = express.Router();
 
@@ -87,6 +87,12 @@ router.get('/callback', async (req, res) => {
 
   try {
     const account = await handleOAuthCallback(code, state);
+    
+    // Automatically initiate live sync in background for seamless UX
+    syncGmailInbox(account.accountId, { maxResults: 20 }).catch(syncErr => {
+      console.warn('[Initial Gmail Sync Notice]', syncErr.message);
+    });
+
     res.redirect(`${clientUrl}?auth=success&account=${encodeURIComponent(account.email)}`);
   } catch (err) {
     console.error('[OAuth Token Exchange Error]', err.message);

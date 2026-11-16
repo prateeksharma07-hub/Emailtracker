@@ -249,13 +249,23 @@ export default function App() {
                 <span className="truncate max-w-[110px] sm:max-w-[140px] font-mono">{account.email}</span>
               </div>
             ) : isDemoMode ? (
-              <div 
-                onClick={() => setIsSettingsOpen(true)}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 cursor-pointer hover:bg-amber-100 transition-colors"
-                title="Demo Evaluation Mode - Click to connect real Gmail"
-              >
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span className="font-bold">Demo Mode</span>
+              <div className="flex items-center space-x-2">
+                <div 
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 cursor-pointer hover:bg-amber-100 transition-colors"
+                  title="Demo Evaluation Mode - Click for settings"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="font-bold">Demo Mode</span>
+                </div>
+                <button
+                  onClick={connectGmail}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md transition-all cursor-pointer"
+                  title="Connect your real Gmail account for live email synchronization"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Connect Live Gmail</span>
+                </button>
               </div>
             ) : (
               <button
