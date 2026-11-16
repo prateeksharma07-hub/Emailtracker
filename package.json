@@ -1,0 +1,16 @@
+{
+  "name": "mailmind-ai",
+  "version": "1.0.0",
+  "description": "MAILMIND AI — Autonomous, Privacy-First AI Email Management & Automation Agent",
+  "private": true,
+  "scripts": {
+    "server": "npm --prefix server start",
+    "client": "npm --prefix client run dev",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\"",
+    "build": "npm --prefix client run build",
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,250 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ==========================================================================
+   MAILMIND AI — DESIGN TOKEN SYSTEM (CSS Variables)
+   ========================================================================== */
+
+:root {
+  /* Surface & Canvas (Cream Luxe Light) */
+  --bg-canvas: #FAF8F5;
+  --bg-surface: #FFFFFF;
+  --bg-surface-elevated: #F5F1EB;
+  --bg-surface-glass: rgba(255, 255, 255, 0.82);
+  
+  /* Borders */
+  --border-subtle: #E8E3DA;
+  --border-medium: #D8D1C5;
+  --border-focus: #7C3AED;
+
+  /* Typography / Text */
+  --text-primary: #111827;
+  --text-secondary: #4B5563;
+  --text-muted: #8896A6;
+  --text-inverse: #FFFFFF;
+
+  /* Multicolour Palette Accents */
+  --color-violet: #7C3AED;
+  --color-violet-light: #F5F3FF;
+  --color-violet-border: #DDD6FE;
+  
+  --color-lavender: #A78BFA;
+  --color-lavender-bg: #EDE9FE;
+
+  --color-coral: #F97316;
+  --color-coral-light: #FFF7ED;
+  --color-coral-border: #FED7AA;
+
+  --color-peach: #FB7185;
+  --color-peach-light: #FFF1F2;
+  --color-peach-border: #FECDD3;
+
+  --color-mint: #10B981;
+  --color-mint-light: #ECFDF5;
+  --color-mint-border: #A7F3D0;
+
+  --color-amber: #F59E0B;
+  --color-amber-light: #FFFBEB;
+  --color-amber-border: #FDE68A;
+
+  --color-cyan: #06B6D4;
+  --color-cyan-light: #ECFEFF;
+
+  /* Shadows */
+  --shadow-card: 0 4px 20px -2px rgba(17, 24, 39, 0.05), 0 2px 6px -1px rgba(17, 24, 39, 0.02);
+  --shadow-elevated: 0 12px 32px -4px rgba(17, 24, 39, 0.08), 0 4px 12px -2px rgba(17, 24, 39, 0.04);
+}
+
+.dark {
+  /* Surface & Canvas (Obsidian Deep Space) */
+  --bg-canvas: #08090E;
+  --bg-surface: #10131E;
+  --bg-surface-elevated: #161A28;
+  --bg-surface-glass: rgba(16, 19, 30, 0.78);
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-medium: rgba(255, 255, 255, 0.14);
+  --border-focus: #A78BFA;
+
+  /* Typography / Text */
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --text-inverse: #08090E;
+
+  /* Dark Theme Accents */
+  --color-violet: #8B5CF6;
+  --color-violet-light: rgba(139, 92, 246, 0.15);
+  --color-violet-border: rgba(139, 92, 246, 0.35);
+
+  --color-lavender: #C4B5FD;
+  --color-lavender-bg: rgba(196, 181, 253, 0.12);
+
+  --color-coral: #FB923C;
+  --color-coral-light: rgba(251, 146, 60, 0.14);
+  --color-coral-border: rgba(251, 146, 60, 0.35);
+
+  --color-peach: #FDA4AF;
+  --color-peach-light: rgba(253, 164, 175, 0.14);
+  --color-peach-border: rgba(253, 164, 175, 0.35);
+
+  --color-mint: #34D399;
+  --color-mint-light: rgba(52, 211, 153, 0.14);
+  --color-mint-border: rgba(52, 211, 153, 0.35);
+
+  --color-amber: #FBBF24;
+  --color-amber-light: rgba(251, 191, 36, 0.14);
+  --color-amber-border: rgba(251, 191, 36, 0.35);
+
+  --color-cyan: #22D3EE;
+  --color-cyan-light: rgba(34, 211, 238, 0.14);
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px -2px rgba(0, 0, 0, 0.45);
+  --shadow-elevated: 0 16px 40px -4px rgba(0, 0, 0, 0.65);
+}
+
+@layer base {
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+}
+
+/* Glassmorphism Surface Utility */
+.glass-card {
+  background: var(--bg-surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-medium);
+}
+
+/* Fluid Multicolour Text Gradient */
+.text-gradient-aurora {
+  background: linear-gradient(135deg, #7C3AED 0%, #D946EF 30%, #F97316 70%, #10B981 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.dark .text-gradient-aurora {
+  background: linear-gradient(135deg, #C084FC 0%, #F472B6 30%, #FB923C 70%, #34D399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, #7C3AED 0%, #C026D3 50%, #EA580C 100%);
+  color: #FFFFFF;
+  font-weight: 700;
+  border-radius: 1rem;
+  padding: 0.75rem 1.5rem;
+  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.35);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 14px 30px -5px rgba(124, 58, 237, 0.45);
+}
+
+.btn-secondary {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  font-weight: 600;
+  border-radius: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--border-medium);
+}
+
+/* Category Badges */
+.badge-urgent {
+  background-color: var(--color-coral-light);
+  color: var(--color-coral);
+  border: 1px solid var(--color-coral-border);
+}
+
+.badge-work {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366F1;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.badge-meeting {
+  background-color: var(--color-amber-light);
+  color: var(--color-amber);
+  border: 1px solid var(--color-amber-border);
+}
+
+.badge-task {
+  background-color: var(--color-violet-light);
+  color: var(--color-violet);
+  border: 1px solid var(--color-violet-border);
+}
+
+.badge-personal {
+  background-color: var(--color-mint-light);
+  color: var(--color-mint);
+  border: 1px solid var(--color-mint-border);
+}
+
+.badge-newsletter {
+  background-color: var(--color-cyan-light);
+  color: var(--color-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.badge-other {
+  background-color: rgba(148, 163, 184, 0.12);
+  color: #64748B;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  opacity: 0.3;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.6;
+}
