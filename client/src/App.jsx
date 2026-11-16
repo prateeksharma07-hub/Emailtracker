@@ -172,6 +172,13 @@ export default function App() {
     }
   };
 
+  const handleTriggerSync = async (opts) => {
+    const res = await triggerSync(opts || { maxResults: 20 });
+    fetchEmails();
+    fetchAnalytics();
+    return res;
+  };
+
   const categories = [
     { id: 'all', label: 'All', icon: Inbox, count: analyticsData?.metrics?.totalEmails || pagination.total },
     { id: 'Urgent', label: 'Urgent', icon: Flame, count: analyticsData?.categories?.Urgent || 0 },
@@ -503,7 +510,7 @@ export default function App() {
                 isLoading={isLoadingEmails}
                 pagination={pagination}
                 onPageChange={(p) => setCurrentPage(p)}
-                onTriggerSync={() => triggerSync({ maxResults: 20 })}
+                onTriggerSync={handleTriggerSync}
                 isSyncing={isSyncing}
               />
             )

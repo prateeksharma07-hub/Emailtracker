@@ -33,6 +33,8 @@ export default function EmailList({
   isSyncing = false
 }) {
 
+  const [syncLimit, setSyncLimit] = React.useState(50);
+
   const getCategoryBadgeClass = (category) => {
     switch (category) {
       case 'Urgent': return 'badge-urgent';
@@ -94,15 +96,30 @@ export default function EmailList({
             </div>
 
             {onTriggerSync && (
-              <button
-                onClick={onTriggerSync}
-                disabled={isSyncing}
-                title="Sync Gmail Inbox"
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
-              </button>
+              <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-100/80 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 text-xs">
+                  <span className="text-[11px] text-slate-400 font-medium">Batch:</span>
+                  <select
+                    value={syncLimit}
+                    onChange={(e) => setSyncLimit(Number(e.target.value))}
+                    className="bg-transparent font-bold text-violet-600 dark:text-violet-400 focus:outline-none cursor-pointer"
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => onTriggerSync({ maxResults: syncLimit })}
+                  disabled={isSyncing}
+                  title={`Sync latest ${syncLimit} emails from Gmail`}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : `Sync ${syncLimit}`}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
