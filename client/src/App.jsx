@@ -10,7 +10,6 @@ import {
   Mail, 
   CheckCircle2, 
   Clock, 
-  AlertTriangle, 
   Send, 
   FileEdit, 
   BarChart3, 
@@ -26,7 +25,10 @@ import {
   KeyRound,
   Settings,
   X,
-  AlertCircle
+  AlertCircle,
+  HelpCircle,
+  Check,
+  ChevronRight
 } from 'lucide-react';
 
 import EmailList from './components/inbox/EmailList';
@@ -104,7 +106,7 @@ export default function App() {
     }
   }, [selectedCategory, priorityFilter, searchQuery, currentPage]);
 
-  // Fetch summary analytics
+  // Fetch Analytics Overview
   const fetchAnalytics = useCallback(async () => {
     try {
       const res = await fetch('/api/analytics');
@@ -117,36 +119,24 @@ export default function App() {
     }
   }, []);
 
-  // Reload when filters or sync changes
   useEffect(() => {
     fetchEmails();
-    fetchAnalytics();
-  }, [fetchEmails, fetchAnalytics, isSyncing]);
+  }, [fetchEmails]);
 
-  // Reset page when category or search changes
   useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedCategory, priorityFilter, searchQuery]);
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
-  // Load single email detail
-  const handleSelectEmail = async (email) => {
+  const handleSelectEmail = async (emailSummary) => {
     try {
-      const res = await fetch(`/api/emails/${email.id}`);
+      const res = await fetch(`/api/emails/${emailSummary.id}`);
       const data = await res.json();
       if (data.success) {
         setSelectedEmail(data.email);
-        // Mark as read locally and remotely
-        if (!email.is_read) {
-          fetch(`/api/emails/${email.id}/read`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_read: 1 })
-          });
-          setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: 1 } : e));
-        }
+        fetchEmails(); // Update unread status
       }
     } catch (err) {
-      console.error('Failed to fetch full email detail', err);
+      console.error('Failed to load email detail', err);
     }
   };
 
@@ -182,150 +172,78 @@ export default function App() {
     }
   };
 
-  const formatLastSynced = (dateStr) => {
-    if (!dateStr) return 'Never';
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffSec = Math.round((now - date) / 1000);
-    if (diffSec < 60) return 'Just now';
-    if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   const categories = [
-    { id: 'all', label: 'All Messages', icon: Inbox, count: analyticsData?.metrics?.totalEmails || pagination.total },
-    { id: 'Urgent', label: 'Urgent', icon: Flame, count: analyticsData?.categories?.Urgent || 0, badgeClass: 'badge-urgent' },
-    { id: 'Work', label: 'Work', icon: Briefcase, count: analyticsData?.categories?.Work || 0, badgeClass: 'badge-work' },
-    { id: 'Meeting', label: 'Meetings', icon: Calendar, count: analyticsData?.categories?.Meeting || 0, badgeClass: 'badge-meeting' },
-    { id: 'Task', label: 'Tasks', icon: CheckSquare, count: analyticsData?.categories?.Task || 0, badgeClass: 'badge-task' },
-    { id: 'Personal', label: 'Personal', icon: UserCheck, count: analyticsData?.categories?.Personal || 0, badgeClass: 'badge-personal' },
-    { id: 'Newsletter', label: 'Newsletters', icon: Newspaper, count: analyticsData?.categories?.Newsletter || 0, badgeClass: 'badge-newsletter' },
+    { id: 'all', label: 'All', icon: Inbox, count: analyticsData?.metrics?.totalEmails || pagination.total },
+    { id: 'Urgent', label: 'Urgent', icon: Flame, count: analyticsData?.categories?.Urgent || 0 },
+    { id: 'Work', label: 'Work', icon: Briefcase, count: analyticsData?.categories?.Work || 0 },
+    { id: 'Meeting', label: 'Meetings', icon: Calendar, count: analyticsData?.categories?.Meeting || 0 },
+    { id: 'Task', label: 'Tasks', icon: CheckSquare, count: analyticsData?.categories?.Task || 0 },
+    { id: 'Personal', label: 'Personal', icon: UserCheck, count: analyticsData?.categories?.Personal || 0 },
+    { id: 'Newsletter', label: 'Newsletters', icon: Newspaper, count: analyticsData?.categories?.Newsletter || 0 },
   ];
 
+  const getScreenTitle = () => {
+    switch (activeTab) {
+      case 'inbox': return 'Smart Inbox';
+      case 'tasks': return 'Action Items & Deadlines';
+      case 'drafts': return 'AI Response Studio';
+      case 'analytics': return 'Intelligence & Metrics';
+      case 'logs': return 'Security & Audit Logs';
+      default: return 'MailMind AI';
+    }
+  };
+
+  const getScreenSubtitle = () => {
+    switch (activeTab) {
+      case 'inbox': return 'Live categorized correspondence with automatic AI summaries';
+      case 'tasks': return 'Actionable deadlines extracted by Gemini AI from incoming emails';
+      case 'drafts': return 'Prepared response drafts awaiting human authorization';
+      case 'analytics': return 'Comprehensive email volume, priority matrix, and AI efficiency';
+      case 'logs': return 'Zero-leak data sanitization and local audit trail';
+      default: return '';
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#FAF8F5] dark:bg-[#08090E] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-250">
+    <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#0A0C13] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-200">
       
-      {/* Top Floating Glass Header */}
-      <header className="sticky top-3 z-40 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full mb-3 no-print">
-        <nav className="glass-card rounded-2xl px-4 sm:px-6 py-3 shadow-xl border border-slate-200/80 dark:border-white/10 flex items-center justify-between">
+      {/* Sleek Dedicated Left Sidebar */}
+      <aside className="w-64 border-r border-slate-200/80 dark:border-white/10 bg-white/70 dark:bg-[#0E111A]/90 backdrop-blur-xl flex flex-col justify-between flex-shrink-0 z-30 min-h-screen sticky top-0 hidden md:flex">
+        
+        {/* Top: Brand & Main Navigation */}
+        <div className="p-4 space-y-6">
           
           {/* Brand Mark */}
           <div 
             onClick={() => { setActiveTab('inbox'); setSelectedEmail(null); }}
-            className="flex items-center space-x-3 cursor-pointer select-none"
+            className="flex items-center space-x-3 px-2 py-1 cursor-pointer select-none"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 via-pink-500 to-amber-400 p-[1.5px] shadow-md shadow-violet-500/20 flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-amber-400 p-[1.5px] shadow-md shadow-violet-500/20 flex-shrink-0">
               <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
-                <Mail className="w-5 h-5 text-amber-300" />
+                <Mail className="w-4 h-4 text-amber-300" />
               </div>
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-extrabold text-lg tracking-tight text-slate-900 dark:text-white">
-                  MAILMIND <span className="text-gradient-aurora">AI</span>
+              <div className="flex items-center space-x-1.5">
+                <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
+                  MAILMIND
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800/60 shadow-xs">
-                  Autonomous Agent
+                <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-violet-600 text-white shadow-xs">
+                  AI
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
-                Intelligent Email Management & Privacy-First Automation
+              <p className="text-[10px] text-slate-400">
+                Autonomous Email Agent
               </p>
             </div>
           </div>
 
-          {/* Right Action Controls */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
-            
-            {/* Live Gmail vs Demo Mode Indicator */}
-            {isLiveMode ? (
-              <div 
-                onClick={() => setIsSettingsOpen(true)}
-                className="flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 transition-colors"
-                title="Live Gmail Connected - Click for settings"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-bold">Live:</span>
-                <span className="truncate max-w-[110px] sm:max-w-[140px] font-mono">{account.email}</span>
-              </div>
-            ) : isDemoMode ? (
-              <div className="flex items-center space-x-2">
-                <div 
-                  onClick={() => setIsSettingsOpen(true)}
-                  className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 cursor-pointer hover:bg-amber-100 transition-colors"
-                  title="Demo Evaluation Mode - Click for settings"
-                >
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span className="font-bold">Demo Mode</span>
-                </div>
-                <button
-                  onClick={connectGmail}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md transition-all cursor-pointer"
-                  title="Connect your real Gmail account for live email synchronization"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Connect Live Gmail</span>
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={connectGmail}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md transition-all cursor-pointer"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
-                <span>Connect Gmail</span>
-              </button>
-            )}
+          {/* Dedicated Section Tabs */}
+          <nav className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 block mb-2">
+              Workspace Views
+            </span>
 
-            {/* Manual Sync Now Button */}
-            <button
-              onClick={() => triggerSync({ maxResults: 20 })}
-              disabled={isSyncing || !isConnected}
-              className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isSyncing
-                  ? 'bg-violet-100 dark:bg-violet-950 text-violet-600'
-                  : 'bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-700 dark:text-slate-300'
-              }`}
-              title={`Last synced: ${formatLastSynced(lastSyncedAt)}`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
-            </button>
-
-            {/* Settings Trigger */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 transition-all cursor-pointer"
-              title="Settings & Setup"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 border border-slate-200/80 dark:border-white/10 transition-all cursor-pointer"
-              title={`Switch to ${theme === 'dark' ? 'Cream Light' : 'Obsidian Dark'} mode`}
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
-              ) : (
-                <Moon className="w-4 h-4 text-violet-600" />
-              )}
-            </button>
-
-          </div>
-        </nav>
-      </header>
-
-      {/* Main Workspace Layout */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col lg:flex-row gap-6 pb-12">
-        
-        {/* Left Navigation Sidebar */}
-        <aside className="w-full lg:w-64 flex-shrink-0 space-y-5">
-          
-          {/* Primary View Switcher */}
-          <div className="glass-card rounded-2xl p-3 border border-slate-200/80 dark:border-white/10 space-y-1">
             <button
               onClick={() => { setActiveTab('inbox'); setSelectedEmail(null); }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -353,7 +271,7 @@ export default function App() {
             >
               <div className="flex items-center space-x-2.5">
                 <CheckSquare className="w-4 h-4 text-amber-500" />
-                <span>Action Items & Tasks</span>
+                <span>Tasks & Deadlines</span>
               </div>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${activeTab === 'tasks' ? 'bg-white/20' : 'bg-slate-200 dark:bg-white/10'}`}>
                 {analyticsData?.metrics?.pendingTasks || 0}
@@ -375,7 +293,7 @@ export default function App() {
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
                 activeTab === 'drafts' ? 'bg-white/20' : 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
               }`}>
-                {analyticsData?.metrics?.pendingDrafts || 0} Review
+                {analyticsData?.metrics?.pendingDrafts || 0}
               </span>
             </button>
 
@@ -406,61 +324,138 @@ export default function App() {
                 <span>Security & Audit</span>
               </div>
             </button>
-          </div>
+          </nav>
+        </div>
 
-          {/* AI Category Filter Tabs (visible when in inbox view) */}
-          {activeTab === 'inbox' && (
-            <div className="glass-card rounded-2xl p-4 border border-slate-200/80 dark:border-white/10 space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block px-1">
-                AI Categorization
-              </span>
-              <div className="space-y-1">
-                {categories.map((cat) => {
-                  const Icon = cat.icon;
-                  const isSelected = selectedCategory === cat.id;
-                  return (
-                    <button
-                      key={cat.id}
-                      onClick={() => { setSelectedCategory(cat.id); setSelectedEmail(null); }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-slate-200/80 dark:bg-white/10 text-slate-900 dark:text-white font-bold'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{cat.label}</span>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold text-slate-400">
-                        {cat.count}
-                      </span>
-                    </button>
-                  );
-                })}
+        {/* Bottom: User Card & Global Actions */}
+        <div className="p-4 border-t border-slate-200/80 dark:border-white/10 space-y-3">
+          
+          {/* User Account Capsule */}
+          <div 
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-100/70 dark:bg-white/5 border border-slate-200/60 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            title="Account & Settings"
+          >
+            <div className="flex items-center space-x-2.5 min-w-0">
+              {account?.picture ? (
+                <img 
+                  src={account.picture} 
+                  alt="Avatar" 
+                  className="w-8 h-8 rounded-full border border-violet-500 flex-shrink-0" 
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-bold flex items-center justify-center text-xs flex-shrink-0">
+                  {(account?.name || account?.email || 'U').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  {account?.name || 'Gmail User'}
+                </p>
+                <div className="flex items-center space-x-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                  <span className="text-[10px] text-slate-400 font-mono truncate">
+                    {isLiveMode ? 'Live Gmail' : 'Demo Mode'}
+                  </span>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* Strict Human-in-the-Loop Safeguard Pill */}
-          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Human Approval Guard</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              Minimum scope policy: MailMind uses <code className="font-mono text-emerald-600">gmail.compose</code> to create drafts. Zero emails are sent autonomously.
+            <Settings className="w-4 h-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex-shrink-0" />
+          </div>
+
+          {/* Utility Row (Theme Toggle & Connect) */}
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-medium text-slate-400">
+              Theme: {theme === 'dark' ? 'Obsidian' : 'Light'}
+            </span>
+
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
+              title="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-violet-600" />
+              )}
+            </button>
+          </div>
+
+        </div>
+
+      </aside>
+
+      {/* Main Screen Container (100% Dedicated per Tab) */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        
+        {/* Top Floating Mobile / Tablet Bar */}
+        <header className="px-4 sm:px-8 py-4 border-b border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-[#0A0C13]/60 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
+              {getScreenTitle()}
+            </h1>
+            <p className="text-xs text-slate-400 hidden sm:block">
+              {getScreenSubtitle()}
             </p>
           </div>
 
-        </aside>
+          <div className="flex items-center space-x-2">
+            {isLiveMode ? (
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-mono">{account.email}</span>
+              </span>
+            ) : (
+              <button
+                onClick={connectGmail}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-xs cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+                <span>Connect Live Gmail</span>
+              </button>
+            )}
 
-        {/* Center Main Stage Content */}
-        <main className="flex-1 space-y-5 min-w-0">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
 
-          {/* Feedback & OAuth Notification Banners */}
+        {/* Mobile Tab Switcher */}
+        <div className="md:hidden flex items-center space-x-1 p-2 bg-slate-100 dark:bg-white/5 overflow-x-auto border-b border-slate-200 dark:border-white/10">
+          {[
+            { id: 'inbox', label: 'Inbox' },
+            { id: 'tasks', label: 'Tasks' },
+            { id: 'drafts', label: 'Drafts' },
+            { id: 'analytics', label: 'Analytics' },
+            { id: 'logs', label: 'Audit' }
+          ].map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setActiveTab(t.id); setSelectedEmail(null); }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer ${
+                activeTab === t.id
+                  ? 'bg-violet-600 text-white'
+                  : 'text-slate-600 dark:text-slate-400'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Dedicated Screen Content */}
+        <main className="flex-1 p-4 sm:p-8 max-w-6xl w-full mx-auto">
+          
+          {/* Notifications */}
           {authNotification && (
-            <div className={`p-4 rounded-2xl text-xs flex items-center justify-between border ${
+            <div className={`p-4 rounded-2xl text-xs flex items-center justify-between border mb-6 ${
               authNotification.type === 'error'
                 ? 'bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-300'
                 : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
@@ -469,7 +464,7 @@ export default function App() {
                 {authNotification.type === 'error' ? (
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 ) : (
-                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
                 )}
                 <span className="font-semibold">{authNotification.message}</span>
               </div>
@@ -482,75 +477,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Sync Status Banner */}
-          {syncStatus && syncStatus.state === 'success' && (
-            <div className="p-3 rounded-2xl text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center space-x-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
-              <span>{syncStatus.message}</span>
-            </div>
-          )}
-
-          {/* Metric Highlights Strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            
-            <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Synced Volume</span>
-                <Mail className="w-4 h-4 text-violet-500" />
-              </div>
-              <div className="text-2xl font-black text-slate-900 dark:text-white">
-                {analyticsData?.metrics?.totalEmails ?? 0}
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                {isLiveMode ? 'Live Gmail Messages' : 'Sample Evaluation Inbox'}
-              </p>
-            </div>
-
-            <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Urgent Priority</span>
-                <Flame className="w-4 h-4 text-rose-500" />
-              </div>
-              <div className="text-2xl font-black text-rose-600 dark:text-rose-400">
-                {analyticsData?.categories?.Urgent ?? 0}
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Critical triage items</p>
-            </div>
-
-            <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Pending Tasks</span>
-                <Clock className="w-4 h-4 text-amber-500" />
-              </div>
-              <div className="text-2xl font-black text-amber-600 dark:text-amber-400">
-                {analyticsData?.metrics?.pendingTasks ?? 0}
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Extracted deadlines</p>
-            </div>
-
-            <div className="glass-card rounded-2xl p-4 transition-all hover:-translate-y-0.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Drafts in Queue</span>
-                <Send className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                {analyticsData?.metrics?.pendingDrafts ?? 0}
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Awaiting human review</p>
-            </div>
-
-          </div>
-
-          {/* Privacy & Anti-Leak Shield Banner */}
-          <div className="p-4 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-xs flex items-start space-x-3 text-slate-700 dark:text-slate-300">
-            <ShieldAlert className="w-5 h-5 text-violet-500 flex-shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-bold text-slate-900 dark:text-white">Zero-Leak Sanitization Active: </span>
-              Emails containing OTPs, 2FA codes, bank account details, credit cards, or medical records are automatically quarantined locally and NEVER transmitted to external LLM servers.
-            </div>
-          </div>
-
-          {/* View Container */}
+          {/* SCREEN 1: SMART INBOX */}
           {activeTab === 'inbox' && (
             selectedEmail ? (
               <EmailDetail
@@ -570,50 +497,56 @@ export default function App() {
                 setSearchQuery={setSearchQuery}
                 priorityFilter={priorityFilter}
                 setPriorityFilter={setPriorityFilter}
+                selectedCategory={selectedCategory}
+                setSelectedCategory={setSelectedCategory}
+                categories={categories}
                 isLoading={isLoadingEmails}
                 pagination={pagination}
                 onPageChange={(p) => setCurrentPage(p)}
-                tasksCount={analyticsData?.metrics?.pendingTasks || 0}
-                draftsCount={analyticsData?.metrics?.pendingDrafts || 0}
-                onGoToTasks={() => { setActiveTab('tasks'); setSelectedEmail(null); }}
-                onGoToDrafts={() => { setActiveTab('drafts'); setSelectedEmail(null); }}
                 onTriggerSync={() => triggerSync({ maxResults: 20 })}
+                isSyncing={isSyncing}
               />
             )
           )}
 
+          {/* SCREEN 2: TASKS & DEADLINES */}
           {activeTab === 'tasks' && (
             <TasksView onSelectEmailById={handleSelectEmailById} />
           )}
 
+          {/* SCREEN 3: AI DRAFTS & APPROVALS */}
           {activeTab === 'drafts' && (
             <DraftsView onOpenApprovalModal={(draft) => setApprovalDraft(draft)} />
           )}
 
+          {/* SCREEN 4: EMAIL ANALYTICS & INTELLIGENCE */}
           {activeTab === 'analytics' && (
             <AnalyticsView />
           )}
 
+          {/* SCREEN 5: SECURITY & AUDIT LOGS */}
           {activeTab === 'logs' && (
             <ActivityLogsView />
           )}
 
         </main>
-
       </div>
 
-      {/* Human Approval Modal (Strict Human-in-the-Loop) */}
-      <HumanApprovalModal
-        draft={approvalDraft}
-        isOpen={Boolean(approvalDraft)}
-        onClose={() => setApprovalDraft(null)}
-        onSent={() => {
-          fetchEmails();
-          fetchAnalytics();
-        }}
-      />
+      {/* Human Approval Modal */}
+      {approvalDraft && (
+        <HumanApprovalModal
+          draft={approvalDraft}
+          isOpen={Boolean(approvalDraft)}
+          onClose={() => setApprovalDraft(null)}
+          onSent={() => {
+            fetchEmails();
+            fetchAnalytics();
+            if (selectedEmail) handleSelectEmail(selectedEmail);
+          }}
+        />
+      )}
 
-      {/* Settings & Setup Modal */}
+      {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -622,14 +555,6 @@ export default function App() {
           fetchAnalytics();
         }}
       />
-
-      {/* Modern SaaS Footer */}
-      <footer className="border-t border-slate-200/80 dark:border-white/10 bg-slate-100/70 dark:bg-[#06070B] text-slate-500 dark:text-slate-400 py-6 text-xs text-center transition-colors">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>MAILMIND AI &bull; Autonomous Privacy-First Email Agent</span>
-          <span>React 19 &bull; Node.js Express &bull; SQLite &bull; Google Gemini &bull; Gmail API</span>
-        </div>
-      </footer>
 
     </div>
   );
