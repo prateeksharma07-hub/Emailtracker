@@ -245,10 +245,11 @@ export async function getAuthenticatedClient(accountId) {
  * NEVER returns access_token or refresh_token to callers or the frontend.
  */
 export function getActiveAccount() {
+  // Prioritize real connected Gmail accounts over demo_account
   const row = db.prepare(`
     SELECT id, email, name, picture, created_at, last_synced_at, access_token 
     FROM accounts 
-    ORDER BY created_at DESC 
+    ORDER BY CASE WHEN id = 'demo_account' THEN 1 ELSE 0 END, created_at DESC 
     LIMIT 1
   `).get();
 
