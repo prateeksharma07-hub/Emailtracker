@@ -5,6 +5,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initDb, db } from './db/database.js';
 
+// Route handlers
+import authRouter from './routes/auth.js';
+import emailsRouter from './routes/emails.js';
+import aiRouter from './routes/ai.js';
+import draftsRouter from './routes/drafts.js';
+import analyticsRouter from './routes/analytics.js';
+import logsRouter from './routes/logs.js';
+import tasksRouter from './routes/tasks.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -17,7 +26,7 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5174';
 
 // Middleware
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5174', 'http://127.0.0.1:5174'],
+  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5174'],
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -78,10 +87,20 @@ app.get('/api', (req, res) => {
       '/api/ai',
       '/api/drafts',
       '/api/analytics',
-      '/api/logs'
+      '/api/logs',
+      '/api/tasks'
     ]
   });
 });
+
+// Mount modular API routers
+app.use('/api/auth', authRouter);
+app.use('/api/emails', emailsRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/drafts', draftsRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/logs', logsRouter);
+app.use('/api/tasks', tasksRouter);
 
 // Central error handler
 app.use((err, req, res, next) => {
@@ -102,4 +121,3 @@ app.listen(PORT, () => {
   console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
   console.log(`===============================================`);
 });
-
