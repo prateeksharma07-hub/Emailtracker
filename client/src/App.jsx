@@ -220,7 +220,7 @@ export default function App() {
   const getScreenSubtitle = () => {
     switch (activeTab) {
       case 'inbox': return 'Live categorized correspondence with automatic AI summaries';
-      case 'tasks': return 'Actionable deadlines extracted by Gemini AI from incoming emails';
+      case 'tasks': return 'Actionable deadlines extracted by Groq AI from incoming emails';
       case 'drafts': return 'Prepared response drafts awaiting human authorization';
       case 'analytics': return 'Comprehensive email volume, priority matrix, and AI efficiency';
       case 'logs': return 'Zero-leak data sanitization and local audit trail';

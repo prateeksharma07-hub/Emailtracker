@@ -82,7 +82,7 @@ export default function AnalyticsView() {
           <div className="text-3xl font-black text-slate-900 dark:text-white">
             {metrics.totalEmails}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Processed with Gemini Flash</p>
+          <p className="text-[11px] text-slate-400 mt-1">Powered by Groq High-Speed LPU</p>
         </div>
 
         <div className="glass-card rounded-2xl p-5 border border-slate-200/80 dark:border-white/10">

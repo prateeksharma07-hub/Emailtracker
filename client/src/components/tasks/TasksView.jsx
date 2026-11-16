@@ -55,7 +55,7 @@ export default function TasksView({ onSelectEmailById }) {
             </h3>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Automatically extracted by Gemini AI from incoming work correspondence and meeting invites.
+            Automatically extracted by Groq AI from incoming work correspondence and meeting invites.
           </p>
         </div>
 

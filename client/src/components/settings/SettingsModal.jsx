@@ -279,7 +279,7 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
                     Active AI Model
                   </h4>
                   <p className="text-[11px] text-slate-400">
-                    Google Gemini 3.5 Flash (Multi-model resilient fallback)
+                    Groq LPU Ultra-Fast Inference (openai/gpt-oss-120b & 20b)
                   </p>
                 </div>
               </div>

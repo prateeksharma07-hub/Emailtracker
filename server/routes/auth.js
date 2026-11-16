@@ -18,10 +18,9 @@ router.get('/status', (req, res) => {
   try {
     const activeAccount = getActiveAccount();
     const isGoogleConfigured = isOAuthConfigured();
-    const isGeminiActive = Boolean(
-      process.env.GEMINI_API_KEY && 
-      process.env.GEMINI_API_KEY.trim() !== '' && 
-      process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here'
+    const isAIActive = Boolean(
+      (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_')) ||
+      (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.startsWith('AIzaSy'))
     );
 
     res.json({
@@ -31,7 +30,9 @@ router.get('/status', (req, res) => {
       account: activeAccount,
       config: {
         oauthConfigured: isGoogleConfigured,
-        geminiActive: isGeminiActive,
+        aiActive: isAIActive,
+        geminiActive: isAIActive, // backwards compatibility for client
+        aiProvider: process.env.GROQ_API_KEY ? 'Groq LPU (Ultra-Fast)' : 'Heuristic Engine',
         redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5001/api/auth/callback'
       }
     });

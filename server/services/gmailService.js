@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 import { db } from '../db/database.js';
 import { getAuthenticatedClient, getActiveAccount } from './oauthService.js';
-import { analyzeEmail, fastClassifyEmail } from './geminiService.js';
+import { analyzeEmail, fastClassifyEmail } from './groqService.js';
 import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from './sanitizationService.js';
 
 /**

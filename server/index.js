@@ -40,10 +40,9 @@ app.get('/api/health', (req, res) => {
   try {
     const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get()?.count || 0;
     const emailCount = db.prepare('SELECT COUNT(*) as count FROM emails').get()?.count || 0;
-    const isGeminiConfigured = Boolean(
-      process.env.GEMINI_API_KEY && 
-      process.env.GEMINI_API_KEY.trim() !== '' && 
-      process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here'
+    const isAIConfigured = Boolean(
+      (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_')) ||
+      (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.startsWith('AIzaSy'))
     );
     const isOAuthConfigured = Boolean(
       process.env.GOOGLE_CLIENT_ID && 
@@ -62,7 +61,9 @@ app.get('/api/health', (req, res) => {
         syncedEmails: emailCount
       },
       config: {
-        geminiActive: isGeminiConfigured,
+        aiActive: isAIConfigured,
+        geminiActive: isAIConfigured, // backwards compatibility
+        aiEngine: process.env.GROQ_API_KEY ? 'Groq LPU (Ultra-Fast)' : 'Heuristic Engine',
         oauthConfigured: isOAuthConfigured
       },
       timestamp: new Date().toISOString()
@@ -117,7 +118,7 @@ app.listen(PORT, () => {
   console.log(`===============================================`);
   console.log(`🧠 MAILMIND AI Server running on port ${PORT}`);
   console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`🔐 Gemini Key Active: ${Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here')}`);
+  console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
   console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
   console.log(`===============================================`);
 });

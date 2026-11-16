@@ -1,7 +1,6 @@
 import express from 'express';
 import { db } from '../db/database.js';
-import { analyzeEmail } from '../services/geminiService.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { analyzeEmail, generateCustomReply } from '../services/groqService.js';
 
 const router = express.Router();
 
@@ -118,26 +117,12 @@ router.post('/generate-custom-reply', async (req, res) => {
       });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const replyBody = await generateCustomReply({
+      email,
+      userInstruction,
+      tone
+    });
 
-    const prompt = `
-You are MailMind AI assisting a user in drafting a reply to an email.
-The user wants a ${tone} tone with this custom instruction: "${userInstruction || 'Polite acknowledgment and actionable reply'}".
-
-<untrusted_email_content>
-Sender: ${email.sender_name || email.sender}
-Subject: ${email.subject}
-Body:
-${email.body_text?.slice(0, 2000) || email.snippet}
-</untrusted_email_content>
-
-Draft a high quality reply. Return ONLY the reply text, no markdown fences, no placeholders.
-`;
-
-    const result = await model.generateContent(prompt);
-    const replyBody = result.response.text().trim();
     const draftId = 'draft_' + Math.random().toString(36).slice(2, 10);
     const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`;
 
