@@ -224,13 +224,14 @@ export async function syncGmailInbox(accountId, options = {}) {
       aiProcessedCount++;
     }
 
-    // 4. Store Email Metadata in SQLite
+    // 4. Store Email Metadata in SQLite (Idempotent ON CONFLICT ignore to handle concurrent syncs)
     const insertEmail = db.prepare(`
       INSERT INTO emails (
         id, thread_id, account_id, sender, sender_name, recipient, subject,
         body_text, body_html, snippet, date_received, is_read,
         is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO NOTHING
     `);
 
     insertEmail.run(

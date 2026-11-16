@@ -162,8 +162,8 @@ export async function handleOAuthCallback(code, state) {
   try {
     db.prepare("DELETE FROM accounts WHERE id = 'demo_account'").run();
     db.prepare("DELETE FROM emails WHERE account_id = 'demo_account'").run();
-    db.prepare("DELETE FROM tasks WHERE account_id = 'demo_account'").run();
-    db.prepare("DELETE FROM drafts WHERE account_id = 'demo_account'").run();
+    db.prepare("DELETE FROM tasks WHERE email_id NOT IN (SELECT id FROM emails)").run();
+    db.prepare("DELETE FROM drafts WHERE email_id NOT IN (SELECT id FROM emails)").run();
   } catch (cleanErr) {
     console.warn('[OAuth] Demo cleanup notice:', cleanErr.message);
   }

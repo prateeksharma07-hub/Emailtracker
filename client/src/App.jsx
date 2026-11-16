@@ -573,6 +573,11 @@ export default function App() {
                 isLoading={isLoadingEmails}
                 pagination={pagination}
                 onPageChange={(p) => setCurrentPage(p)}
+                tasksCount={analyticsData?.metrics?.pendingTasks || 0}
+                draftsCount={analyticsData?.metrics?.pendingDrafts || 0}
+                onGoToTasks={() => { setActiveTab('tasks'); setSelectedEmail(null); }}
+                onGoToDrafts={() => { setActiveTab('drafts'); setSelectedEmail(null); }}
+                onTriggerSync={() => triggerSync({ maxResults: 20 })}
               />
             )
           )}
