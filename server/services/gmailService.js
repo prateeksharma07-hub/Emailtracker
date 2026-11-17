@@ -210,8 +210,8 @@ export async function syncGmailInbox(accountId, options = {}) {
 
     console.log(`[Gmail Sync] ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel...`);
 
-    // 2. Fetch full message payloads in parallel batches of 5 to avoid blocking
-    const BATCH_SIZE = 5;
+    // 2. Fetch full message payloads in high-speed parallel batches of 20
+    const BATCH_SIZE = 20;
     const parsedEmails = [];
 
     for (let i = 0; i < pendingSummaries.length; i += BATCH_SIZE) {
@@ -227,12 +227,12 @@ export async function syncGmailInbox(accountId, options = {}) {
       }
     }
 
-    // 3. High-velocity classification: Deep Gemini analysis for newest messages, fast heuristic for bulk items
+    // 3. High-velocity classification: Deep Groq LPU analysis for newest messages, fast deterministic classifier for all
     for (let i = 0; i < parsedEmails.length; i++) {
       const parsedEmail = parsedEmails[i];
       let analysis;
 
-      // Deep Gemini analysis on top 5 newest emails to preserve responsiveness
+      // Deep Groq LPU analysis on top 5 newest emails
       if (i < 5) {
         try {
           analysis = await analyzeEmail(parsedEmail);

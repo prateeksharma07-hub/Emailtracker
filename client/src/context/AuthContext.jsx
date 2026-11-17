@@ -86,11 +86,11 @@ export function AuthProvider({ children }) {
     setIsSyncing(true);
     setSyncStatus({ state: 'syncing', message: 'Syncing inbox with Gmail...' });
 
-    // Safety timeout prevents UI spinner from hanging indefinitely
+    // Safety timeout prevents UI spinner from hanging indefinitely (60s threshold for large batches)
     const safetyTimer = setTimeout(() => {
       setIsSyncing(false);
       checkAuthStatus();
-    }, 12000);
+    }, 60000);
 
     try {
       const res = await fetch('/api/emails/sync', {

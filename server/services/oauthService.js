@@ -296,11 +296,11 @@ export async function disconnectAccount(accountId) {
     }
   }
 
-  // Delete account and associated records
-  db.prepare('DELETE FROM accounts WHERE id = ?').run(target.id);
-  db.prepare('DELETE FROM emails WHERE account_id = ?').run(target.id);
-  db.prepare('DELETE FROM tasks WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)').run(target.id);
+  // Delete associated records first, then emails and accounts to preserve integrity
   db.prepare('DELETE FROM drafts WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)').run(target.id);
+  db.prepare('DELETE FROM tasks WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)').run(target.id);
+  db.prepare('DELETE FROM emails WHERE account_id = ?').run(target.id);
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(target.id);
 
   // Log disconnect
   db.prepare(`

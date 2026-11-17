@@ -89,8 +89,8 @@ router.get('/callback', async (req, res) => {
   try {
     const account = await handleOAuthCallback(code, state);
     
-    // Automatically initiate live sync in background for seamless UX
-    syncGmailInbox(account.accountId, { maxResults: 20 }).catch(syncErr => {
+    // Automatically initiate live sync for top 50 emails upon connect
+    syncGmailInbox(account.accountId, { maxResults: 50 }).catch(syncErr => {
       console.warn('[Initial Gmail Sync Notice]', syncErr.message);
     });
 
