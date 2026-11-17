@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initDb, db } from './db/database.js';
@@ -102,6 +103,16 @@ app.use('/api/drafts', draftsRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/logs', logsRouter);
 app.use('/api/tasks', tasksRouter);
+
+// Serve client in production when dist exists
+const clientDistPath = path.resolve(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.resolve(clientDistPath, 'index.html'));
+  });
+}
 
 // Central error handler
 app.use((err, req, res, next) => {
