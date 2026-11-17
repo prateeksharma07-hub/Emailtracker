@@ -104,7 +104,7 @@ export default function App() {
     } finally {
       setIsLoadingEmails(false);
     }
-  }, [selectedCategory, priorityFilter, searchQuery, currentPage]);
+  }, [selectedCategory, priorityFilter, searchQuery, currentPage, account]);
 
   // Fetch Analytics Overview
   const fetchAnalytics = useCallback(async () => {
@@ -117,7 +117,7 @@ export default function App() {
     } catch (err) {
       console.error('Failed to fetch analytics', err);
     }
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     fetchEmails();
@@ -126,6 +126,14 @@ export default function App() {
   useEffect(() => {
     fetchAnalytics();
   }, [fetchAnalytics]);
+
+  // Automatic refresh on account connect / disconnect
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedEmail(null);
+    fetchEmails();
+    fetchAnalytics();
+  }, [account]);
 
   const handleSelectEmail = async (emailSummary) => {
     try {
@@ -529,6 +537,8 @@ export default function App() {
                 onPageChange={(p) => setCurrentPage(p)}
                 onTriggerSync={handleTriggerSync}
                 isSyncing={isSyncing}
+                isConnected={isConnected}
+                onConnectGmail={connectGmail}
               />
             )
           )}

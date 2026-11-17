@@ -42,6 +42,7 @@ export function AuthProvider({ children }) {
       });
       // Clean query parameters from URL without reloading
       window.history.replaceState({}, document.title, window.location.pathname);
+      checkAuthStatus();
     } else if (authError) {
       setAuthNotification({
         type: 'error',

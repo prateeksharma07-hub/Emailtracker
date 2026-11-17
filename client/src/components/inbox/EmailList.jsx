@@ -12,7 +12,8 @@ import {
   ChevronRight,
   RefreshCw,
   SlidersHorizontal,
-  Mail
+  Mail,
+  KeyRound
 } from 'lucide-react';
 
 export default function EmailList({ 
@@ -30,7 +31,9 @@ export default function EmailList({
   pagination = { page: 1, limit: 20, total: 0, totalPages: 1 },
   onPageChange,
   onTriggerSync,
-  isSyncing = false
+  isSyncing = false,
+  isConnected = true,
+  onConnectGmail
 }) {
 
   const [syncLimit, setSyncLimit] = React.useState(50);
@@ -167,37 +170,64 @@ export default function EmailList({
       {/* Empty State */}
       {!isLoading && emails.length === 0 && (
         <div className="glass-card rounded-3xl p-12 text-center border border-slate-200/80 dark:border-white/10 space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center mx-auto">
-            <Inbox className="w-7 h-7" />
-          </div>
-          <div>
-            <h4 className="text-base font-bold text-slate-900 dark:text-white">
-              No matching messages found
-            </h4>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-              {searchQuery || priorityFilter || selectedCategory !== 'all'
-                ? 'Try resetting your search query or filters.'
-                : 'Your inbox is clear. Click Sync to fetch new emails from Gmail.'}
-            </p>
-          </div>
-
-          {(searchQuery || priorityFilter || selectedCategory !== 'all') ? (
-            <button
-              onClick={() => { setSearchQuery(''); setPriorityFilter(''); setSelectedCategory('all'); }}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/50 hover:bg-violet-100 transition-colors cursor-pointer"
-            >
-              Reset All Filters
-            </button>
+          {!isConnected ? (
+            <>
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                <KeyRound className="w-7 h-7" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                  Gmail Account Disconnected
+                </h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                  Connect your Gmail account to enable live synchronization, AI classification, and response drafting.
+                </p>
+              </div>
+              {onConnectGmail && (
+                <button
+                  onClick={onConnectGmail}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md shadow-violet-500/25 transition-all cursor-pointer"
+                >
+                  <KeyRound className="w-4 h-4 text-amber-300" />
+                  <span>Connect Live Gmail (OAuth 2.0)</span>
+                </button>
+              )}
+            </>
           ) : (
-            onTriggerSync && (
-              <button
-                onClick={onTriggerSync}
-                className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-md transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Sync Gmail Now</span>
-              </button>
-            )
+            <>
+              <div className="w-14 h-14 rounded-2xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center mx-auto">
+                <Inbox className="w-7 h-7" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                  No matching messages found
+                </h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                  {searchQuery || priorityFilter || selectedCategory !== 'all'
+                    ? 'Try resetting your search query or filters.'
+                    : 'Your inbox is clear. Click Sync to fetch new emails from Gmail.'}
+                </p>
+              </div>
+
+              {(searchQuery || priorityFilter || selectedCategory !== 'all') ? (
+                <button
+                  onClick={() => { setSearchQuery(''); setPriorityFilter(''); setSelectedCategory('all'); }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/50 hover:bg-violet-100 transition-colors cursor-pointer"
+                >
+                  Reset All Filters
+                </button>
+              ) : (
+                onTriggerSync && (
+                  <button
+                    onClick={onTriggerSync}
+                    className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-md transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Sync Gmail Now</span>
+                  </button>
+                )
+              )}
+            </>
           )}
         </div>
       )}

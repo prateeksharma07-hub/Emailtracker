@@ -89,10 +89,12 @@ router.get('/callback', async (req, res) => {
   try {
     const account = await handleOAuthCallback(code, state);
     
-    // Automatically initiate live sync for top 50 emails upon connect
-    syncGmailInbox(account.accountId, { maxResults: 50 }).catch(syncErr => {
+    // Pre-populate inbox with top 30 emails before redirecting to eliminate empty-inbox race condition
+    try {
+      await syncGmailInbox(account.accountId, { maxResults: 30 });
+    } catch (syncErr) {
       console.warn('[Initial Gmail Sync Notice]', syncErr.message);
-    });
+    }
 
     res.redirect(`${clientUrl}?auth=success&account=${encodeURIComponent(account.email)}`);
   } catch (err) {
