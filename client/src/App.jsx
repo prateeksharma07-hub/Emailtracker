@@ -245,29 +245,44 @@ export default function App() {
         {/* Top: Brand & Main Navigation */}
         <div className="p-4 space-y-6">
           
-          {/* Brand Mark */}
-          <div 
-            onClick={() => { setActiveTab('inbox'); setSelectedEmail(null); }}
-            className="flex items-center space-x-3 px-2 py-1 cursor-pointer select-none"
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-amber-400 p-[1.5px] shadow-md shadow-violet-500/20 flex-shrink-0">
-              <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
-                <Mail className="w-4 h-4 text-amber-300" />
+          {/* Brand Mark & Top Theme Toggle */}
+          <div className="flex items-center justify-between px-2 py-1 select-none">
+            <div 
+              onClick={() => { setActiveTab('inbox'); setSelectedEmail(null); }}
+              className="flex items-center space-x-2.5 cursor-pointer group"
+            >
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-amber-400 p-[1.5px] shadow-md shadow-violet-500/20 flex-shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
+                  <Mail className="w-4 h-4 text-amber-300" />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
+                    MAILMIND
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-violet-600 text-white shadow-xs">
+                    AI
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Autonomous Email Agent
+                </p>
               </div>
             </div>
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <span className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
-                  MAILMIND
-                </span>
-                <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-violet-600 text-white shadow-xs">
-                  AI
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400">
-                Autonomous Email Agent
-              </p>
-            </div>
+
+            {/* Quick Theme Switcher next to MailMind AI */}
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200/80 dark:border-white/10 transition-all cursor-pointer shadow-xs"
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Obsidian Dark'} mode`}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-violet-600" />
+              )}
+            </button>
           </div>
 
           {/* Dedicated Section Tabs */}
@@ -396,23 +411,13 @@ export default function App() {
             <Settings className="w-4 h-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex-shrink-0" />
           </div>
 
-          {/* Utility Row (Theme Toggle & Connect) */}
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] font-medium text-slate-400">
-              Theme: {theme === 'dark' ? 'Obsidian' : 'Light'}
+          {/* Engine Status Pill */}
+          <div className="flex items-center justify-between px-2 py-1 text-[11px] text-slate-400">
+            <span className="flex items-center space-x-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Groq LPU Active</span>
             </span>
-
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
-              ) : (
-                <Moon className="w-4 h-4 text-violet-600" />
-              )}
-            </button>
+            <span className="font-mono text-[10px] text-slate-500">v1.0</span>
           </div>
 
         </div>
@@ -448,6 +453,18 @@ export default function App() {
                 <span>Connect Live Gmail</span>
               </button>
             )}
+
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer border border-slate-200/60 dark:border-white/10"
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Obsidian Dark'} mode`}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-violet-600" />
+              )}
+            </button>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
