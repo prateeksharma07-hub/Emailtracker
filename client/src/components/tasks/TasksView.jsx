@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CheckSquare, Square, Calendar, Clock, Inbox, ArrowUpRight, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function TasksView({ onSelectEmailById }) {
   const [tasks, setTasks] = useState([]);
@@ -10,7 +11,7 @@ export default function TasksView({ onSelectEmailById }) {
     try {
       setIsLoading(true);
       const url = filter === 'pending' ? '/api/tasks?completed=0' : filter === 'completed' ? '/api/tasks?completed=1' : '/api/tasks';
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (data.success) {
         setTasks(data.tasks || []);
@@ -28,9 +29,8 @@ export default function TasksView({ onSelectEmailById }) {
 
   const handleToggleTask = async (taskId, currentStatus) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
+      const res = await apiFetch(`/api/tasks/${taskId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_completed: !currentStatus })
       });
       const data = await res.json();

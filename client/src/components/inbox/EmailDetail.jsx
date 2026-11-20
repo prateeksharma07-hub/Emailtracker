@@ -16,6 +16,7 @@ import {
   Eye,
   CornerDownRight
 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, onToggleTask, onRefreshEmail }) {
   if (!email) return null;
@@ -78,9 +79,8 @@ export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, on
       setIsGeneratingCustom(true);
       setCustomError(null);
 
-      const res = await fetch('/api/ai/generate-custom-reply', {
+      const res = await apiFetch('/api/ai/generate-custom-reply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emailId: email.id,
           userInstruction: customPrompt,

@@ -15,34 +15,36 @@ import {
   Check,
   LogOut,
   Mail,
-  ShieldAlert
+  ShieldAlert,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { apiFetch } from '../../utils/api';
 
 export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
   if (!isOpen) return null;
 
   const { 
+    user,
     account, 
     isConnected, 
-    isDemoMode, 
     isLiveMode, 
     triggerSync, 
-    disconnectAccount, 
+    logout,
+    deleteAccountData, 
     connectGmail 
   } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('account'); // 'account' | 'agent' | 'security' | 'preferences'
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [seedMessage, setSeedMessage] = useState(null);
+  const [activeTab, setActiveTab] = useState('account'); // 'account' | 'agent' | 'security'
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [connectError, setConnectError] = useState(null);
 
-  // Preference toggles (persisted in local state)
+  // Preference toggles
   const [autoTriage, setAutoTriage] = useState(true);
   const [autoExtractTasks, setAutoExtractTasks] = useState(true);
   const [autoDraftReplies, setAutoDraftReplies] = useState(true);
   const [agentTone, setAgentTone] = useState('Executive & Concise');
-  const [density, setDensity] = useState('Comfortable');
   const [savedNotice, setSavedNotice] = useState(false);
 
   const handleConnectLive = async () => {
@@ -54,23 +56,21 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
     }
   };
 
-  const handleSeedDemo = async () => {
+  const handleLogout = async () => {
+    onClose();
+    await logout();
+  };
+
+  const handleDeleteAllData = async () => {
     try {
-      setIsSeeding(true);
-      setSeedMessage(null);
-      const res = await fetch('/api/auth/seed-demo', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setSeedMessage('Loaded 7 realistic emails with Gemini AI intelligence.');
-        if (onDemoLoaded) onDemoLoaded();
-        triggerSync();
-      } else {
-        setSeedMessage(data.message || 'Demo inbox already loaded.');
-      }
+      setIsDeleting(true);
+      await deleteAccountData();
+      setShowConfirmDelete(false);
+      onClose();
     } catch (err) {
-      setSeedMessage('Failed to load demo data: ' + err.message);
+      console.error('Delete failed:', err);
     } finally {
-      setIsSeeding(false);
+      setIsDeleting(false);
     }
   };
 
@@ -78,6 +78,8 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 2000);
   };
+
+  const activeUser = user || account;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-fade-in">
@@ -91,24 +93,24 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                Settings & Agent Preferences
+                Settings & Account Controls
               </h3>
               <p className="text-xs text-slate-400">
-                Manage your Gmail integration, AI persona, and privacy guardrails
+                Manage your Gmail connection, privacy guardrails, and data isolation
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-all cursor-pointer"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center space-x-1 p-1 bg-slate-100 dark:bg-white/5 rounded-2xl border border-slate-200/60 dark:border-white/5">
+        <div className="flex p-1 bg-slate-100 dark:bg-white/5 rounded-2xl border border-slate-200/60 dark:border-white/5">
           <button
             onClick={() => setActiveTab('account')}
             className={`flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -153,67 +155,73 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
             <div className="p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Connected Gmail Account
+                  Connected Google Account
                 </span>
 
-                {isLiveMode ? (
-                  <span className="flex items-center space-x-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Live Gmail Synchronized</span>
-                  </span>
-                ) : isDemoMode ? (
-                  <span className="flex items-center space-x-1.5 text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span>Evaluation Demo Mode</span>
-                  </span>
-                ) : (
-                  <span className="text-xs font-bold text-slate-400 bg-slate-200 dark:bg-white/10 px-2.5 py-1 rounded-full">
-                    Not Connected
-                  </span>
-                )}
+                <span className="flex items-center space-x-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Authenticated</span>
+                </span>
               </div>
 
-              {isConnected ? (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-extrabold flex items-center justify-center text-sm shadow-md">
-                      {account?.name?.charAt(0) || account?.email?.charAt(0) || 'G'}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        {account?.name || 'Gmail User'}
+              {activeUser ? (
+                <div className="space-y-4 pt-1">
+                  <div className="flex items-center space-x-3.5">
+                    {activeUser.picture ? (
+                      <img 
+                        src={activeUser.picture} 
+                        alt="Avatar" 
+                        className="w-12 h-12 rounded-full border-2 border-violet-500/50 flex-shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-extrabold flex items-center justify-center text-sm shadow-md flex-shrink-0">
+                        {activeUser.name?.charAt(0) || activeUser.email?.charAt(0) || 'U'}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        {activeUser.name || 'MailMind User'}
                       </h4>
-                      <p className="text-xs text-slate-400 font-mono">
-                        {account?.email}
+                      <p className="text-xs text-slate-400 font-mono truncate">
+                        {activeUser.email}
                       </p>
-                      {account?.last_synced_at && (
+                      {activeUser.last_sync_at && (
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          Last Synced: {new Date(account.last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          Last Synced: {new Date(activeUser.last_sync_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-white/10">
                     <button
                       onClick={() => triggerSync()}
                       className="px-3.5 py-2 rounded-xl text-xs font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60 hover:bg-violet-200 dark:hover:bg-violet-900/60 transition-colors cursor-pointer"
                     >
                       Sync Now
                     </button>
+                    
                     <button
-                      onClick={disconnectAccount}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors cursor-pointer"
+                      onClick={handleLogout}
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-colors cursor-pointer"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      <span>Disconnect</span>
+                      <span>Log Out</span>
+                    </button>
+
+                    <button
+                      onClick={() => setShowConfirmDelete(true)}
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors cursor-pointer ml-auto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Disconnect & Delete Data</span>
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-4 py-2">
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Connect your real Gmail account with secure Google OAuth 2.0. MailMind will read the latest messages and draft high-accuracy AI replies.
+                    Connect your real Gmail account with secure Google OAuth 2.0. MailMind will read your messages and generate drafts.
                   </p>
                   
                   <button
@@ -221,7 +229,7 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
                     className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-md shadow-violet-500/25 transition-all cursor-pointer"
                   >
                     <KeyRound className="w-4 h-4 text-amber-300" />
-                    <span>Connect Live Gmail (OAuth 2.0)</span>
+                    <span>Connect Gmail (OAuth 2.0)</span>
                   </button>
 
                   {connectError && (
@@ -234,34 +242,33 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
               )}
             </div>
 
-            {/* Demo Mode Card */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-violet-500/5 via-pink-500/5 to-amber-500/5 border border-slate-200/60 dark:border-white/10 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2 text-violet-700 dark:text-violet-300 font-bold text-xs">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>Evaluation Demo Sandbox</span>
+            {/* Confirmation Modal for Permanent Delete */}
+            {showConfirmDelete && (
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 space-y-3">
+                <div className="flex items-center gap-2 font-bold text-xs text-rose-600 dark:text-rose-400">
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>Permanent Account & Data Wipeout</span>
                 </div>
-                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold">
-                  Portfolio Preview
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Instantly populate a realistic inbox with 7 pre-analyzed emails, action items, sensitive OTP shields, and reply drafts.
-              </p>
-              <button
-                onClick={handleSeedDemo}
-                disabled={isSeeding}
-                className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/15 border border-slate-200 dark:border-white/10 transition-all cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSeeding ? 'animate-spin' : ''}`} />
-                <span>{isSeeding ? 'Populating...' : 'Reset to Sample Inbox'}</span>
-              </button>
-              {seedMessage && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-                  {seedMessage}
+                <p className="text-xs leading-relaxed">
+                  This will revoke MailMind's Google OAuth tokens and permanently delete all your synced emails, tasks, drafts, and activity logs from SQLite. This action cannot be undone.
                 </p>
-              )}
-            </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleDeleteAllData}
+                    disabled={isDeleting}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Deleting...' : 'Yes, Delete Everything'}
+                  </button>
+                  <button
+                    onClick={() => setShowConfirmDelete(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -384,10 +391,18 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
             {/* Security Rules Breakdown */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-3">
               <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Safety Guarantees Enforced
+                Multi-User SaaS Security Guarantees
               </h4>
 
               <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+                <div className="flex items-start space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
+                  <span><strong>AES-256-GCM Token Encryption:</strong> Google OAuth tokens are encrypted at rest with hardware-grade AES-256-GCM. Plain tokens are never stored or logged.</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
+                  <span><strong>Strict Data Isolation:</strong> Every database query filters by your unique user ID. No other user can ever view or touch your inbox.</span>
+                </div>
                 <div className="flex items-start space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
                   <span><strong>Human Approval Gate:</strong> Zero automatic email dispatch. Every single reply requires explicit human review and confirmation.</span>
@@ -396,21 +411,13 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
                   <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
                   <span><strong>Minimum Permissions:</strong> Only <code className="font-mono text-violet-600 dark:text-violet-400">gmail.readonly</code> & <code className="font-mono text-violet-600 dark:text-violet-400">gmail.compose</code> (drafts) requested. <code className="font-mono text-rose-500">gmail.send</code> is permanently disallowed.</span>
                 </div>
-                <div className="flex items-start space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
-                  <span><strong>No Auto-Delete or Auto-Archive:</strong> Your Gmail inbox remains completely untouched and safe.</span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
-                  <span><strong>Local Storage:</strong> Tokens and metadata are stored in your private local SQLite database on this machine.</span>
-                </div>
               </div>
             </div>
 
             {/* Diagnostic Details */}
             <div className="p-3 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 flex items-center justify-between text-[11px] text-slate-400">
-              <span>Database Engine: Native Node.js SQLite (WAL Mode)</span>
-              <span className="font-mono text-emerald-500">Secure</span>
+              <span>Database Engine: Native Node.js SQLite (Multi-User WAL Mode)</span>
+              <span className="font-mono text-emerald-500">Encrypted</span>
             </div>
           </div>
         )}

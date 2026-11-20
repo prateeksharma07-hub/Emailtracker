@@ -1,33 +1,37 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { db } from '../db/database.js';
 import { syncGmailInbox } from '../services/gmailService.js';
-import { getActiveAccount } from '../services/oauthService.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+// Rate limiter for inbox sync: max 12 requests per minute per user/IP
+const syncLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  message: { success: false, error: 'Sync limit reached. Please wait a minute before syncing again.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Require authentication for all email operations
+router.use(requireAuth);
+
 /**
  * GET /api/emails
- * Lists emails with category, search, priority, sensitive filters, and pagination.
- * ISOLATION: Associates all queries with the active account_id.
+ * Lists emails strictly belonging to req.user.id
  */
 router.get('/', (req, res) => {
   try {
-    const activeAccount = getActiveAccount();
-    if (!activeAccount) {
-      return res.json({
-        success: true,
-        emails: [],
-        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 }
-      });
-    }
-
+    const userId = req.user.id;
     const { category, search, priority, sensitive, limit = 20, page = 1 } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
     const offset = (pageNum - 1) * limitNum;
 
-    let sql = 'SELECT * FROM emails WHERE account_id = ?';
-    const params = [activeAccount.id];
+    let sql = 'SELECT * FROM emails WHERE user_id = ?';
+    const params = [userId];
 
     if (category && category !== 'All' && category !== 'all') {
       sql += ' AND category = ?';
@@ -58,10 +62,10 @@ router.get('/', (req, res) => {
 
     const emails = db.prepare(sql).all(...params);
 
-    // Fetch tasks & draft counts for each email
+    // Fetch tasks & draft counts for each email (scoped to user)
     const emailsWithMeta = emails.map(email => {
-      const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ?').all(email.id);
-      const draftsCount = db.prepare('SELECT COUNT(*) as count FROM drafts WHERE email_id = ?').get(email.id)?.count || 0;
+      const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ? AND user_id = ?').all(email.id, userId);
+      const draftsCount = db.prepare('SELECT COUNT(*) as count FROM drafts WHERE email_id = ? AND user_id = ?').get(email.id, userId)?.count || 0;
       return {
         ...email,
         tasks,
@@ -71,7 +75,7 @@ router.get('/', (req, res) => {
 
     res.json({
       success: true,
-      account: activeAccount,
+      user: req.user,
       emails: emailsWithMeta,
       pagination: {
         page: pageNum,
@@ -87,24 +91,19 @@ router.get('/', (req, res) => {
 
 /**
  * GET /api/emails/:id
- * Returns single email with full body, tasks, and drafts
+ * Returns single email with full body, tasks, and drafts (strictly owned by req.user.id)
  */
 router.get('/:id', (req, res) => {
   try {
-    const activeAccount = getActiveAccount();
-    const email = db.prepare('SELECT * FROM emails WHERE id = ?').get(req.params.id);
+    const userId = req.user.id;
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     
     if (!email) {
-      return res.status(404).json({ success: false, error: 'Email not found' });
+      return res.status(404).json({ success: false, error: 'Email not found or access denied.' });
     }
 
-    // Verify user owns the email record
-    if (activeAccount && email.account_id && email.account_id !== activeAccount.id) {
-      return res.status(403).json({ success: false, error: 'Access denied to this email record.' });
-    }
-
-    const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ? ORDER BY created_at ASC').all(email.id);
-    const drafts = db.prepare('SELECT * FROM drafts WHERE email_id = ? ORDER BY created_at ASC').all(email.id);
+    const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ? AND user_id = ? ORDER BY created_at ASC').all(email.id, userId);
+    const drafts = db.prepare('SELECT * FROM drafts WHERE email_id = ? AND user_id = ? ORDER BY created_at ASC').all(email.id, userId);
 
     res.json({
       success: true,
@@ -121,22 +120,15 @@ router.get('/:id', (req, res) => {
 
 /**
  * POST /api/emails/sync
- * Manually triggers Gmail API synchronization (latest 20 emails)
+ * Manually triggers Gmail API synchronization for the authenticated user
  */
-router.post('/sync', async (req, res) => {
+router.post('/sync', syncLimiter, async (req, res) => {
   try {
-    const activeAccount = getActiveAccount();
-    if (!activeAccount) {
-      return res.status(400).json({
-        success: false,
-        error: 'No connected Gmail account. Please connect your Google account or load demo data.'
-      });
-    }
-
-    const maxResults = parseInt(req.body.maxResults, 10) || 20;
+    const userId = req.user.id;
+    const maxResults = parseInt(req.body.maxResults, 10) || 30;
     const pageToken = req.body.pageToken || null;
 
-    const result = await syncGmailInbox(activeAccount.id, { maxResults, pageToken });
+    const result = await syncGmailInbox(userId, { maxResults, pageToken });
     res.json(result);
   } catch (err) {
     console.error('[Sync Route Error]', err.message);
@@ -158,12 +150,19 @@ router.post('/sync', async (req, res) => {
 
 /**
  * PATCH /api/emails/:id/read
- * Marks an email as read or unread
+ * Marks an email as read/unread strictly owned by req.user.id
  */
 router.patch('/:id/read', (req, res) => {
   try {
+    const userId = req.user.id;
     const { is_read = 1 } = req.body;
-    db.prepare('UPDATE emails SET is_read = ? WHERE id = ?').run(is_read ? 1 : 0, req.params.id);
+
+    const email = db.prepare('SELECT id FROM emails WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!email) {
+      return res.status(404).json({ success: false, error: 'Email not found or access denied.' });
+    }
+
+    db.prepare('UPDATE emails SET is_read = ? WHERE id = ? AND user_id = ?').run(is_read ? 1 : 0, req.params.id, userId);
     res.json({ success: true, emailId: req.params.id, is_read: is_read ? 1 : 0 });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -172,13 +171,19 @@ router.patch('/:id/read', (req, res) => {
 
 /**
  * DELETE /api/emails/:id
- * Deletes an email from local database
+ * Deletes an email from local database strictly owned by req.user.id
  */
 router.delete('/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM emails WHERE id = ?').run(req.params.id);
-    db.prepare('DELETE FROM tasks WHERE email_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM drafts WHERE email_id = ?').run(req.params.id);
+    const userId = req.user.id;
+    const email = db.prepare('SELECT id FROM emails WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!email) {
+      return res.status(404).json({ success: false, error: 'Email not found or access denied.' });
+    }
+
+    db.prepare('DELETE FROM drafts WHERE email_id = ? AND user_id = ?').run(req.params.id, userId);
+    db.prepare('DELETE FROM tasks WHERE email_id = ? AND user_id = ?').run(req.params.id, userId);
+    db.prepare('DELETE FROM emails WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     res.json({ success: true, message: 'Email deleted from local database' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

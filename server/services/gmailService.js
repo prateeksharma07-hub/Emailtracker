@@ -1,8 +1,35 @@
 import { google } from 'googleapis';
 import { db } from '../db/database.js';
-import { getAuthenticatedClient, getActiveAccount } from './oauthService.js';
+import { getAuthenticatedClientForUser } from './oauthService.js';
 import { analyzeEmail, fastClassifyEmail } from './groqService.js';
 import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from './sanitizationService.js';
+
+// Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
+class ConcurrencyLimiter {
+  constructor(maxConcurrency = 2) {
+    this.maxConcurrency = maxConcurrency;
+    this.current = 0;
+    this.queue = [];
+  }
+
+  async run(fn) {
+    if (this.current >= this.maxConcurrency) {
+      await new Promise(resolve => this.queue.push(resolve));
+    }
+    this.current++;
+    try {
+      return await fn();
+    } finally {
+      this.current--;
+      if (this.queue.length > 0) {
+        const next = this.queue.shift();
+        next();
+      }
+    }
+  }
+}
+
+const aiLimiter = new ConcurrencyLimiter(2);
 
 /**
  * Base64url decoder for Gmail message payloads
@@ -74,7 +101,7 @@ function parseEmailSender(fromString) {
 /**
  * Normalizes a raw Gmail message object into MailMind database format
  */
-export function normalizeGmailMessage(rawMessage, accountId) {
+export function normalizeGmailMessage(rawMessage, userId) {
   const payload = rawMessage.payload || {};
   const headers = payload.headers || [];
 
@@ -96,8 +123,9 @@ export function normalizeGmailMessage(rawMessage, accountId) {
 
   return {
     id: rawMessage.id,
+    user_id: userId,
     thread_id: rawMessage.threadId || rawMessage.id,
-    account_id: accountId,
+    account_id: userId,
     sender,
     sender_name,
     recipient,
@@ -110,64 +138,47 @@ export function normalizeGmailMessage(rawMessage, accountId) {
   };
 }
 
+// Track active syncs per user to prevent concurrent double-sync for the same user
+const activeUserSyncs = new Set();
+
 /**
- * Synchronizes emails from live Gmail API into local SQLite database.
+ * Synchronizes emails from live Gmail API into local SQLite database for a specific user.
  * 
- * REQUIREMENTS COMPLIANCE:
- * - Fetches latest 20 emails by default.
- * - Supports pagination (pageToken).
- * - Avoids duplicates using Gmail message IDs.
- * - Extracts and stores sender, subject, date, snippet, and read/unread status.
- * - Associates all records with the authenticated account_id.
- * - Safeguards sensitive data before AI triage.
- * - Detects and handles expired or revoked Google tokens.
+ * STRICT MULTI-USER ISOLATION:
+ * - Operates strictly with user's decrypted OAuth tokens.
+ * - Enforces WHERE user_id = ? on all queries and inserts.
+ * - Protects Groq rate limits with concurrency queue.
+ * - BATCH_SIZE = 20 for parallel fetching.
  * 
- * @param {string} accountId 
- * @param {object} options - { maxResults: 20, pageToken: null }
+ * @param {string} userId 
+ * @param {object} options - { maxResults: 30, pageToken: null }
  * @returns {Promise<object>} Sync summary
  */
-// Global sync mutex to prevent concurrent overlap and hanging
-let isSyncInProgress = false;
-
-export async function syncGmailInbox(accountId, options = {}) {
-  const maxResults = options.maxResults || 20;
+export async function syncGmailInbox(userId, options = {}) {
+  const maxResults = options.maxResults || 30;
   const pageToken = options.pageToken || undefined;
 
-  const authData = await getAuthenticatedClient(accountId);
-  const { oauth2Client, account, isDemo } = authData;
-
-  // Handle Demo mode sync
-  if (isDemo) {
-    console.log('[Gmail Sync] Demo Mode active. Returning local sample data status.');
-    return {
-      success: true,
-      mode: 'DEMO',
-      newEmailsCount: 0,
-      sensitiveCount: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ? AND is_sensitive = 1').get(account.id)?.c || 0,
-      aiProcessedCount: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ? AND ai_processed = 1').get(account.id)?.c || 0,
-      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ?').get(account.id)?.c || 0,
-      lastSyncedAt: account.last_synced_at || new Date().toISOString()
-    };
-  }
-
-  // Mutex lock
-  if (isSyncInProgress) {
-    console.log('[Gmail Sync] Synchronization already running in background. Returning current state.');
+  // Prevent double-sync for the same user
+  if (activeUserSyncs.has(userId)) {
+    console.log(`[Gmail Sync] Synchronization already running for user ${userId}. Returning ongoing status.`);
     return {
       success: true,
       mode: 'LIVE',
       newEmailsCount: 0,
       isOngoing: true,
-      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ?').get(account.id)?.c || 0,
-      lastSyncedAt: account.last_synced_at || new Date().toISOString()
+      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE user_id = ?').get(userId)?.c || 0,
+      lastSyncedAt: new Date().toISOString()
     };
   }
 
-  isSyncInProgress = true;
+  activeUserSyncs.add(userId);
 
   try {
+    const authData = await getAuthenticatedClientForUser(userId);
+    const { oauth2Client, user } = authData;
+
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    console.log(`[Gmail Sync] Fetching recent ${maxResults} messages from Gmail API for: ${account.email}`);
+    console.log(`[Gmail Sync] Fetching recent ${maxResults} messages from Gmail API for: ${user.email} (userId: ${userId})`);
 
     let listRes;
     try {
@@ -194,9 +205,9 @@ export async function syncGmailInbox(accountId, options = {}) {
     let sensitiveCount = 0;
     let aiProcessedCount = 0;
 
-    // 1. Fast duplicate detection using local SQLite index
+    // 1. User-isolated duplicate detection using SQLite index
     const existingIds = new Set(
-      db.prepare('SELECT id FROM emails WHERE account_id = ?').all(account.id).map(r => r.id)
+      db.prepare('SELECT id FROM emails WHERE user_id = ?').all(userId).map(r => r.id)
     );
 
     const pendingSummaries = [];
@@ -208,9 +219,9 @@ export async function syncGmailInbox(accountId, options = {}) {
       }
     }
 
-    console.log(`[Gmail Sync] ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel...`);
+    console.log(`[Gmail Sync] User ${user.email}: ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel...`);
 
-    // 2. Fetch full message payloads in high-speed parallel batches of 20
+    // 2. Fetch full message payloads in parallel batches of 20
     const BATCH_SIZE = 20;
     const parsedEmails = [];
 
@@ -222,20 +233,20 @@ export async function syncGmailInbox(accountId, options = {}) {
 
       for (const res of chunkResults) {
         if (res.status === 'fulfilled' && res.value?.data) {
-          parsedEmails.push(normalizeGmailMessage(res.value.data, account.id));
+          parsedEmails.push(normalizeGmailMessage(res.value.data, userId));
         }
       }
     }
 
-    // 3. High-velocity classification: Deep Groq LPU analysis for newest messages, fast deterministic classifier for all
+    // 3. AI Triage: Bounded concurrency with Groq LPU
     for (let i = 0; i < parsedEmails.length; i++) {
       const parsedEmail = parsedEmails[i];
       let analysis;
 
-      // Deep Groq LPU analysis on top 5 newest emails
+      // Deep Groq LPU analysis on top 5 newest emails via concurrency limiter
       if (i < 5) {
         try {
-          analysis = await analyzeEmail(parsedEmail);
+          analysis = await aiLimiter.run(() => analyzeEmail(parsedEmail));
         } catch (e) {
           analysis = fastClassifyEmail(parsedEmail);
         }
@@ -249,20 +260,25 @@ export async function syncGmailInbox(accountId, options = {}) {
         aiProcessedCount++;
       }
 
-      // 4. Store Email Metadata in SQLite
+      // 4. Store Email Metadata in SQLite strictly under user_id
       const insertEmail = db.prepare(`
         INSERT INTO emails (
-          id, thread_id, account_id, sender, sender_name, recipient, subject,
+          id, user_id, thread_id, account_id, sender, sender_name, recipient, subject,
           body_text, body_html, snippet, date_received, is_read,
           is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          user_id = excluded.user_id,
+          category = excluded.category,
+          priority_score = excluded.priority_score,
+          summary = excluded.summary
       `);
 
       insertEmail.run(
         parsedEmail.id,
+        userId,
         parsedEmail.thread_id,
-        account.id,
+        userId,
         parsedEmail.sender,
         parsedEmail.sender_name,
         parsedEmail.recipient,
@@ -280,15 +296,16 @@ export async function syncGmailInbox(accountId, options = {}) {
         1
       );
 
-      // 5. Save Extracted Action Items if any
+      // 5. Save Extracted Action Items under user_id
       if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
         const insertTask = db.prepare(`
-          INSERT INTO tasks (id, email_id, task_title, deadline_date, deadline_text)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO tasks (id, user_id, email_id, task_title, deadline_date, deadline_text)
+          VALUES (?, ?, ?, ?, ?, ?)
         `);
         for (const t of analysis.tasks) {
           insertTask.run(
             'task_' + Math.random().toString(36).slice(2, 10),
+            userId,
             parsedEmail.id,
             t.task_title,
             t.deadline_date || null,
@@ -297,15 +314,16 @@ export async function syncGmailInbox(accountId, options = {}) {
         }
       }
 
-      // 6. Save AI Reply Drafts if any
+      // 6. Save AI Reply Drafts under user_id
       if (Array.isArray(analysis.reply_drafts) && analysis.reply_drafts.length > 0) {
         const insertDraft = db.prepare(`
-          INSERT INTO drafts (id, email_id, to_address, subject, reply_body, tone, status)
-          VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
+          INSERT INTO drafts (id, user_id, email_id, to_address, subject, reply_body, tone, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
         `);
         for (const d of analysis.reply_drafts) {
           insertDraft.run(
             'draft_' + Math.random().toString(36).slice(2, 10),
+            userId,
             parsedEmail.id,
             parsedEmail.sender,
             d.subject || `Re: ${parsedEmail.subject}`,
@@ -318,20 +336,21 @@ export async function syncGmailInbox(accountId, options = {}) {
       newEmailsCount++;
     }
 
-    // Update account's last_synced_at
+    // 7. Update user's last_sync_at timestamp
     const now = new Date().toISOString();
-    db.prepare('UPDATE accounts SET last_synced_at = ? WHERE id = ?').run(now, account.id);
+    db.prepare('UPDATE users SET last_sync_at = ? WHERE id = ?').run(now, userId);
 
-    // Log sync event
+    // 8. Record audit log under user_id
     db.prepare(`
-      INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO activity_logs (id, user_id, event_type, severity, message, metadata)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       'log_' + Date.now(),
+      userId,
       'SYNC_COMPLETED',
       sensitiveCount > 0 ? 'SECURITY' : 'INFO',
       `Live inbox sync completed: ${newEmailsCount} new emails saved, ${skippedDuplicates} duplicates skipped. (${aiProcessedCount} AI classified, ${sensitiveCount} shielded)`,
-      JSON.stringify({ accountId: account.id, newEmailsCount, skippedDuplicates, sensitiveCount, aiProcessedCount })
+      JSON.stringify({ userId, email: user.email, newEmailsCount, skippedDuplicates, sensitiveCount, aiProcessedCount })
     );
 
     return {
@@ -341,65 +360,48 @@ export async function syncGmailInbox(accountId, options = {}) {
       skippedDuplicates,
       sensitiveCount,
       aiProcessedCount,
-      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE account_id = ?').get(account.id)?.c || 0,
+      totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE user_id = ?').get(userId)?.c || 0,
       lastSyncedAt: now
     };
   } finally {
-    isSyncInProgress = false;
+    activeUserSyncs.delete(userId);
   }
 }
 
 /**
- * Creates an authorized draft in Gmail Drafts (using minimum permissions `gmail.compose`).
- * 
- * STRICT COMPLIANCE:
+ * Creates an authorized draft in user's Gmail Drafts folder (using minimum permissions `gmail.compose`).
+ * STRICT PRIVACY REQUIREMENT:
  * - Does NOT send emails.
  * - Does NOT require `gmail.send` scope.
- * - Creates a real draft in user's Gmail Drafts folder so user can review it in Gmail if desired.
+ * - Human-in-the-loop: executed ONLY when user approves a draft.
  * 
  * @param {string} draftId 
+ * @param {string} userId
  * @param {object} overrides 
  */
-export async function createGmailDraft(draftId, overrides = {}) {
-  const draft = db.prepare('SELECT * FROM drafts WHERE id = ?').get(draftId);
+export async function createGmailDraft(draftId, userId, overrides = {}) {
+  // Enforce strict ownership check
+  const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(draftId, userId);
   if (!draft) {
-    throw new Error(`Draft with ID ${draftId} not found.`);
+    const err = new Error(`Draft with ID ${draftId} not found or unauthorized.`);
+    err.statusCode = 404;
+    throw err;
   }
 
-  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ?').get(draft.email_id);
-  const accountId = emailRecord?.account_id;
+  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
 
   const to = overrides.to_address || draft.to_address;
   const subject = overrides.subject || draft.subject;
   const body = overrides.reply_body || draft.reply_body;
 
-  const authData = await getAuthenticatedClient(accountId);
-  const { oauth2Client, account, isDemo } = authData;
-
-  // Handle Demo mode
-  if (isDemo || !oauth2Client) {
-    db.prepare(`
-      UPDATE drafts 
-      SET status = 'APPROVED', 
-          approved_at = CURRENT_TIMESTAMP,
-          to_address = ?,
-          subject = ?,
-          reply_body = ?
-      WHERE id = ?
-    `).run(to, subject, body, draftId);
-
-    return {
-      success: true,
-      mode: 'DEMO',
-      message: 'Draft approved and stored in local queue.'
-    };
-  }
+  const authData = await getAuthenticatedClientForUser(userId);
+  const { oauth2Client, user } = authData;
 
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-  // Construct RFC 2822 email
+  // Construct RFC 2822 email format
   const rawEmailLines = [
-    `From: ${account.name || 'MailMind User'} <${account.email}>`,
+    `From: ${user.name || 'MailMind User'} <${user.email}>`,
     `To: ${to}`,
     `Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`,
     `Content-Type: text/plain; charset=utf-8`,
@@ -420,7 +422,7 @@ export async function createGmailDraft(draftId, overrides = {}) {
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-  // Create Gmail draft using minimum permissions (gmail.compose)
+  // Push draft to Gmail
   const draftRes = await gmail.users.drafts.create({
     userId: 'me',
     requestBody: {
@@ -433,23 +435,24 @@ export async function createGmailDraft(draftId, overrides = {}) {
 
   const gmailDraftId = draftRes.data.id;
 
-  // Update local draft
+  // Update local draft status to APPROVED / CREATED_IN_GMAIL
   db.prepare(`
     UPDATE drafts 
-    SET status = 'CREATED_IN_GMAIL', 
+    SET status = 'APPROVED', 
         approved_at = CURRENT_TIMESTAMP,
         to_address = ?,
         subject = ?,
         reply_body = ?
-    WHERE id = ?
-  `).run(to, subject, body, draftId);
+    WHERE id = ? AND user_id = ?
+  `).run(to, subject, body, draftId, userId);
 
-  // Log draft creation
+  // Log user activity
   db.prepare(`
-    INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO activity_logs (id, user_id, event_type, severity, message, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     'log_' + Date.now(),
+    userId,
     'DRAFT_CREATED_GMAIL',
     'INFO',
     `Created draft in Gmail for ${to} ("${subject}")`,
@@ -460,275 +463,6 @@ export async function createGmailDraft(draftId, overrides = {}) {
     success: true,
     mode: 'LIVE',
     gmailDraftId,
-    message: 'Draft successfully created in your Gmail account.'
+    message: 'Draft successfully pushed to your Gmail Drafts folder.'
   };
-}
-
-/**
- * Seeds high-quality demo sample emails for immediate evaluation
- */
-export async function seedDemoEmails() {
-  const activeAcc = getActiveAccount();
-  const accountId = 'demo_account';
-
-  // Check if demo account already exists
-  const existingAcc = db.prepare('SELECT id FROM accounts WHERE id = ?').get(accountId);
-  if (!existingAcc) {
-    db.prepare(`
-      INSERT INTO accounts (id, email, name, picture, access_token, created_at, last_synced_at)
-      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(
-      accountId,
-      'alex.founder@mailmind.ai',
-      'Alex Founder (Demo Mode)',
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
-      'mock_token'
-    );
-  }
-
-  // Check if emails already exist for demo
-  const count = db.prepare('SELECT COUNT(*) as count FROM emails WHERE account_id = ?').get(accountId)?.count || 0;
-  if (count > 0) {
-    return { success: true, message: 'Demo inbox already loaded with sample emails', count };
-  }
-
-  const sampleEmails = [
-    {
-      id: 'msg_001_urgent',
-      thread_id: 'th_001',
-      sender: 'sarah.vp@enterprise-client.com',
-      sender_name: 'Sarah Chen (VP Product)',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'URGENT: Production API Latency Spiking - Immediate Review Needed',
-      body_text: 'Alex,\n\nWe are noticing response latency spike over 800ms on the US-East cluster since 4 PM. Several enterprise customers have raised tickets. Can your infrastructure engineering team investigate this immediately and share an incident update within the next 2 hours?\n\nThanks,\nSarah Chen',
-      body_html: '<p>Alex,</p><p>We are noticing response latency spike over 800ms on the US-East cluster since 4 PM. Several enterprise customers have raised tickets. Can your infrastructure engineering team investigate this immediately and share an incident update within the next 2 hours?</p><p>Thanks,<br/>Sarah Chen</p>',
-      snippet: 'We are noticing response latency spike over 800ms on the US-East cluster since 4 PM. Immediate review needed...',
-      date_received: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Urgent',
-        priority_score: 5,
-        summary: 'Sarah Chen reports a critical API latency spike exceeding 800ms on the US-East cluster, requesting an immediate infrastructure investigation and incident update within 2 hours.',
-        tasks: [
-          { task_title: 'Investigate US-East cluster API latency spike', deadline_text: 'Within 2 hours' }
-        ],
-        reply_drafts: [
-          { tone: 'Professional', reply_body: 'Hi Sarah,\n\nOur infrastructure team has been alerted and is actively investigating the US-East latency spike. We will provide an incident update within the next 90 minutes.\n\nBest regards,\nAlex' },
-          { tone: 'Concise', reply_body: 'Hi Sarah,\n\nInvestigating now with the infra team. Update coming within 2 hours.' },
-          { tone: 'Detailed', reply_body: 'Hi Sarah,\n\nThank you for flagging. We have opened a P1 incident bridge. Engineering is inspecting recent deployments and database connection pool saturation. I will personally update you within 2 hours.\n\nBest,\nAlex' }
-        ]
-      }
-    },
-    {
-      id: 'msg_002_meeting',
-      thread_id: 'th_002',
-      sender: 'marcus.vance@sequoia-capital.com',
-      sender_name: 'Marcus Vance',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'Invitation: MailMind Series A Partner Presentation — Thursday 2:30 PM PST',
-      body_text: 'Hi Alex,\n\nOur investment committee thoroughly reviewed your deck. We would like to invite you and your co-founder to present at our Menlo Park office (or via Zoom) this Thursday at 2:30 PM PST. Please confirm if that slot works or suggest an alternate time.\n\nBest,\nMarcus',
-      body_html: '<p>Hi Alex,</p><p>Our investment committee thoroughly reviewed your deck. We would like to invite you and your co-founder to present at our Menlo Park office (or via Zoom) this Thursday at 2:30 PM PST. Please confirm if that slot works or suggest an alternate time.</p><p>Best,<br/>Marcus</p>',
-      snippet: 'Our investment committee thoroughly reviewed your deck. We would like to invite you to present this Thursday...',
-      date_received: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Meeting',
-        priority_score: 4,
-        summary: 'Marcus Vance from Sequoia Capital invites the founders to present their Series A deck to the investment committee this Thursday at 2:30 PM PST.',
-        tasks: [
-          { task_title: 'Confirm Series A Partner Presentation slot with Sequoia', deadline_text: 'Thursday 2:30 PM PST' }
-        ],
-        reply_drafts: [
-          { tone: 'Professional', reply_body: 'Hi Marcus,\n\nThank you for the invitation. Thursday at 2:30 PM PST works perfectly for our team. We look forward to presenting to the partnership.\n\nBest regards,\nAlex' },
-          { tone: 'Concise', reply_body: 'Hi Marcus,\n\nConfirmed for Thursday at 2:30 PM PST. Looking forward to it!' },
-          { tone: 'Detailed', reply_body: 'Hi Marcus,\n\nWe are thrilled by the opportunity. Thursday at 2:30 PM PST works great. We will attend in person at Menlo Park and share an updated deck tomorrow.\n\nWarm regards,\nAlex' }
-        ]
-      }
-    },
-    {
-      id: 'msg_003_task_contract',
-      thread_id: 'th_003',
-      sender: 'elena.rostova@legal-advisors.com',
-      sender_name: 'Elena Rostova (Counsel)',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'Action Required: Master Services Agreement for CloudScale Inc — Deadline Friday 5 PM',
-      body_text: 'Hi Alex,\n\nAttached is the redlined MSA from CloudScale counsel. Section 8.2 (Indemnity Caps) has been adjusted as per our discussion. Please review clauses 4 and 8.2 and provide your countersignature before Friday at 5:00 PM EST so we can close the quarter cleanly.\n\nWarm regards,\nElena',
-      body_html: '<p>Hi Alex,</p><p>Attached is the redlined MSA from CloudScale counsel. Please review clauses 4 and 8.2 and provide your countersignature before Friday at 5:00 PM EST.</p><p>Warm regards,<br/>Elena</p>',
-      snippet: 'Attached is the redlined MSA from CloudScale counsel. Please review and provide countersignature before Friday at 5 PM...',
-      date_received: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Task',
-        priority_score: 4,
-        summary: 'Legal counsel Elena Rostova requests review of redlined clauses 4 and 8.2 of the CloudScale MSA and countersignature by Friday at 5:00 PM EST.',
-        tasks: [
-          { task_title: 'Review and countersign CloudScale MSA clauses 4 & 8.2', deadline_text: 'Friday 5:00 PM EST' }
-        ],
-        reply_drafts: [
-          { tone: 'Professional', reply_body: 'Hi Elena,\n\nReceived. I will review the indemnity cap changes in section 8.2 and provide our countersignature by Friday morning.\n\nBest,\nAlex' }
-        ]
-      }
-    },
-    {
-      id: 'msg_004_privacy_otp',
-      thread_id: 'th_004',
-      sender: 'no-reply@accounts.google.com',
-      sender_name: 'Google Identity Protection',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'Your Google Verification Security Code is 839201',
-      body_text: 'Security Alert: Someone is attempting to sign in to your Google Account. Enter the verification code 839201 on your device to confirm your identity. If this was not you, secure your account immediately at myaccount.google.com/security. This OTP code expires in 10 minutes.',
-      body_html: '<p>Security Alert: Someone is attempting to sign in to your Google Account. Enter the verification code <strong>839201</strong> on your device to confirm your identity. This OTP code expires in 10 minutes.</p>',
-      snippet: 'Enter the verification code 839201 on your device to confirm your identity. This OTP code expires in 10 minutes.',
-      date_received: new Date(Date.now() - 8 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Urgent',
-        priority_score: 5,
-        summary: '🔒 Security Verification Code / 2FA alert. Protected by Privacy Guard. Expires shortly.',
-        tasks: [],
-        reply_drafts: [],
-        is_sensitive: 1,
-        sensitive_type: 'OTP'
-      }
-    },
-    {
-      id: 'msg_005_privacy_banking',
-      thread_id: 'th_005',
-      sender: 'alerts@chase-commercial.com',
-      sender_name: 'Chase Commercial Banking',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'Wire Transfer Confirmation: Debit Alert for Acct ending in 4921',
-      body_text: 'Commercial Wire Notification: A wire transfer in the amount of $48,500.00 USD was successfully posted from Account Number 38492018492 to Silicon Valley Tech Suppliers. If you did not authorize this wire transaction, contact your dedicated relationship manager immediately.',
-      body_html: '<p>Commercial Wire Notification: A wire transfer in the amount of $48,500.00 USD was successfully posted from Account Number 38492018492 to Silicon Valley Tech Suppliers.</p>',
-      snippet: 'A wire transfer in the amount of $48,500.00 USD was successfully posted from Account Number 38492018492...',
-      date_received: new Date(Date.now() - 14 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Urgent',
-        priority_score: 4,
-        summary: '💳 Financial transaction / banking notice. Protected by Privacy Guard. Local review recommended.',
-        tasks: [],
-        reply_drafts: [],
-        is_sensitive: 1,
-        sensitive_type: 'BANKING'
-      }
-    },
-    {
-      id: 'msg_006_newsletter',
-      thread_id: 'th_006',
-      sender: 'dan@tldr.tech',
-      sender_name: 'TLDR Tech Digest',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'TLDR: Next-Gen AI Inference Chips, Anthropic Reasoning Models & Open Source Breakthroughs',
-      body_text: 'Good morning tech world! In today edition:\n- Frontier models reach new benchmarks in real-time latency.\n- Hardware accelerators deliver 4x throughput efficiency.\n- Software architectures shifting to local-first SQLite and agentic workflows.\n\nClick here to unsubscribe or manage your daily newsletter preferences.',
-      body_html: '<p>Good morning tech world! In today edition: Frontier models reach new benchmarks...</p><p><a href="#">Unsubscribe</a></p>',
-      snippet: 'Good morning tech world! In today edition: Frontier models reach new benchmarks in real-time latency...',
-      date_received: new Date(Date.now() - 22 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Newsletter',
-        priority_score: 1,
-        summary: 'TLDR daily digest highlighting frontier inference benchmarks, hardware accelerators, and local-first software architectures.',
-        tasks: [],
-        reply_drafts: []
-      }
-    },
-    {
-      id: 'msg_007_personal',
-      thread_id: 'th_007',
-      sender: 'david.miller@gmail.com',
-      sender_name: 'David Miller',
-      recipient: 'alex.founder@mailmind.ai',
-      subject: 'Dinner this weekend in SF? Catching up after TechCrunch Disrupt',
-      body_text: 'Hey Alex!\n\nHope startup life is treating you well! It was great running into you at TechCrunch Disrupt last week. A few of us from the Stanford cohort are gathering for dinner this Saturday around 7:30 PM in Hayes Valley. Let me know if you can make it!\n\nCheers,\nDave',
-      body_html: '<p>Hey Alex!</p><p>Hope startup life is treating you well! A few of us are gathering for dinner this Saturday around 7:30 PM in Hayes Valley. Let me know if you can make it!</p><p>Cheers,<br/>Dave</p>',
-      snippet: 'Hope startup life is treating you well! A few of us are gathering for dinner this Saturday around 7:30 PM...',
-      date_received: new Date(Date.now() - 28 * 3600 * 1000).toISOString(),
-      preAnalysis: {
-        category: 'Personal',
-        priority_score: 2,
-        summary: 'David Miller invites Alex to a Stanford cohort dinner this Saturday at 7:30 PM in Hayes Valley, San Francisco.',
-        tasks: [
-          { task_title: 'RSVP to David Miller regarding Stanford dinner in SF', deadline_text: 'Before Saturday' }
-        ],
-        reply_drafts: [
-          { tone: 'Professional', reply_body: 'Hey Dave,\n\nGreat to hear from you! Count me in for Saturday at 7:30 PM. Looking forward to catching up with everyone.\n\nBest,\nAlex' }
-        ]
-      }
-    }
-  ];
-
-  for (const email of sampleEmails) {
-    const analysis = email.preAnalysis || await analyzeEmail(email);
-
-    db.prepare(`
-      INSERT OR REPLACE INTO emails (
-        id, thread_id, account_id, sender, sender_name, recipient, subject,
-        body_text, body_html, snippet, date_received, is_read,
-        is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      email.id,
-      email.thread_id,
-      accountId,
-      email.sender,
-      email.sender_name,
-      email.recipient,
-      email.subject,
-      email.body_text,
-      email.body_html,
-      email.snippet,
-      email.date_received,
-      0,
-      analysis.is_sensitive ? 1 : 0,
-      analysis.sensitive_type || null,
-      analysis.category,
-      analysis.priority_score,
-      analysis.summary,
-      1
-    );
-
-    // Save tasks
-    if (analysis.tasks && analysis.tasks.length > 0) {
-      const taskStmt = db.prepare(`
-        INSERT INTO tasks (id, email_id, task_title, deadline_date, deadline_text)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-      for (const t of analysis.tasks) {
-        taskStmt.run(
-          'task_' + Math.random().toString(36).slice(2, 10),
-          email.id,
-          t.task_title,
-          t.deadline_date || null,
-          t.deadline_text || null
-        );
-      }
-    }
-
-    // Save reply drafts
-    if (analysis.reply_drafts && analysis.reply_drafts.length > 0) {
-      const draftStmt = db.prepare(`
-        INSERT INTO drafts (id, email_id, to_address, subject, reply_body, tone, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
-      `);
-      for (const d of analysis.reply_drafts) {
-        draftStmt.run(
-          'draft_' + Math.random().toString(36).slice(2, 10),
-          email.id,
-          email.sender,
-          d.subject || `Re: ${email.subject}`,
-          d.reply_body,
-          d.tone || 'Professional'
-        );
-      }
-    }
-  }
-
-  // Log seeding
-  db.prepare(`
-    INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    'log_' + Date.now(),
-    'SEED_DATA_LOADED',
-    'INFO',
-    `Loaded 7 realistic emails for demo evaluation.`,
-    JSON.stringify({ seededCount: sampleEmails.length, accountId })
-  );
-
-  return { success: true, seededCount: sampleEmails.length, accountId };
 }

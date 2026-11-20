@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileEdit, Send, CheckCircle2, XCircle, AlertTriangle, Clock, Sparkles, Trash2 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function DraftsView({ onOpenApprovalModal }) {
   const [drafts, setDrafts] = useState([]);
@@ -10,7 +11,7 @@ export default function DraftsView({ onOpenApprovalModal }) {
     try {
       setIsLoading(true);
       const url = statusFilter ? `/api/drafts?status=${statusFilter}` : '/api/drafts';
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (data.success) {
         setDrafts(data.drafts || []);
@@ -28,7 +29,7 @@ export default function DraftsView({ onOpenApprovalModal }) {
 
   const handleDiscard = async (draftId) => {
     try {
-      await fetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
+      await apiFetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
       fetchDrafts();
     } catch (err) {
       console.error('Failed to discard draft', err);

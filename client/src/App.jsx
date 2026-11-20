@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useTheme } from './context/ThemeContext';
+import { apiFetch } from './utils/api';
+import LoginView from './components/auth/LoginView';
 import { 
   Inbox, 
   Sparkles, 
@@ -26,6 +28,7 @@ import {
   Settings,
   X,
   AlertCircle,
+  LogOut,
   HelpCircle,
   Check,
   ChevronRight
@@ -42,10 +45,10 @@ import SettingsModal from './components/settings/SettingsModal';
 
 export default function App() {
   const { 
+    user,
     account, 
-    isConnected, 
-    isDemoMode, 
-    isLiveMode, 
+    isAuthenticated,
+    isLoading,
     isSyncing, 
     syncStatus, 
     lastSyncedAt, 
@@ -53,7 +56,8 @@ export default function App() {
     clearAuthNotification, 
     triggerSync, 
     connectGmail, 
-    disconnectAccount 
+    logout,
+    deleteAccountData 
   } = useAuth();
   
   const { theme, toggleTheme } = useTheme();
@@ -74,8 +78,9 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
 
-  // Fetch Emails with active filters & pagination
+  // Fetch Emails with active filters & pagination strictly for authenticated user
   const fetchEmails = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
       setIsLoadingEmails(true);
       const params = new URLSearchParams();
@@ -91,7 +96,7 @@ export default function App() {
       params.append('page', currentPage.toString());
       params.append('limit', '20');
 
-      const res = await fetch(`/api/emails?${params.toString()}`);
+      const res = await apiFetch(`/api/emails?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setEmails(data.emails || []);
@@ -104,12 +109,13 @@ export default function App() {
     } finally {
       setIsLoadingEmails(false);
     }
-  }, [selectedCategory, priorityFilter, searchQuery, currentPage, account]);
+  }, [selectedCategory, priorityFilter, searchQuery, currentPage, isAuthenticated]);
 
   // Fetch Analytics Overview
   const fetchAnalytics = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
-      const res = await fetch('/api/analytics');
+      const res = await apiFetch('/api/analytics');
       const data = await res.json();
       if (data.success) {
         setAnalyticsData(data);
@@ -117,27 +123,33 @@ export default function App() {
     } catch (err) {
       console.error('Failed to fetch analytics', err);
     }
-  }, [account]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    fetchEmails();
-  }, [fetchEmails]);
+    if (isAuthenticated) {
+      fetchEmails();
+    }
+  }, [fetchEmails, isAuthenticated]);
 
   useEffect(() => {
-    fetchAnalytics();
-  }, [fetchAnalytics]);
+    if (isAuthenticated) {
+      fetchAnalytics();
+    }
+  }, [fetchAnalytics, isAuthenticated]);
 
-  // Automatic refresh on account connect / disconnect
+  // Reset pagination on user switch
   useEffect(() => {
-    setCurrentPage(1);
-    setSelectedEmail(null);
-    fetchEmails();
-    fetchAnalytics();
-  }, [account]);
+    if (isAuthenticated) {
+      setCurrentPage(1);
+      setSelectedEmail(null);
+      fetchEmails();
+      fetchAnalytics();
+    }
+  }, [user?.id, isAuthenticated]);
 
   const handleSelectEmail = async (emailSummary) => {
     try {
-      const res = await fetch(`/api/emails/${emailSummary.id}`);
+      const res = await apiFetch(`/api/emails/${emailSummary.id}`);
       const data = await res.json();
       if (data.success) {
         setSelectedEmail(data.email);
@@ -155,7 +167,7 @@ export default function App() {
 
   const handleDeleteEmail = async (emailId) => {
     try {
-      await fetch(`/api/emails/${emailId}`, { method: 'DELETE' });
+      await apiFetch(`/api/emails/${emailId}`, { method: 'DELETE' });
       setSelectedEmail(null);
       fetchEmails();
       fetchAnalytics();
@@ -166,9 +178,8 @@ export default function App() {
 
   const handleToggleTask = async (taskId, nextStatus) => {
     try {
-      await fetch(`/api/tasks/${taskId}`, {
+      await apiFetch(`/api/tasks/${taskId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_completed: nextStatus ? 1 : 0 })
       });
       if (selectedEmail) {
@@ -182,7 +193,7 @@ export default function App() {
 
   const handleTriggerSync = async (opts) => {
     setCurrentPage(1);
-    const res = await triggerSync(opts || { maxResults: 50 });
+    const res = await triggerSync(opts || { maxResults: 30 });
     fetchEmails();
     fetchAnalytics();
     return res;
@@ -203,6 +214,24 @@ export default function App() {
     setPriorityFilter(priority);
     setCurrentPage(1);
   };
+
+  // Loading State
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-xl shadow-indigo-500/20 mb-4 animate-pulse">
+          <Sparkles className="w-6 h-6 text-white" />
+        </div>
+        <p className="text-sm font-semibold tracking-wide">Initializing MailMind AI...</p>
+        <p className="text-xs text-slate-500 mt-1 font-mono">Verifying encrypted session</p>
+      </div>
+    );
+  }
+
+  // Unauthenticated State: Show Dedicated Google Login View
+  if (!isAuthenticated || !user) {
+    return <LoginView />;
+  }
 
   const categories = [
     { id: 'all', label: 'All', icon: Inbox, count: analyticsData?.metrics?.totalEmails || pagination.total },
@@ -235,6 +264,8 @@ export default function App() {
       default: return '';
     }
   };
+
+  const currentUser = user || account;
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#0A0C13] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-200">
@@ -271,7 +302,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Quick Theme Switcher next to MailMind AI */}
+            {/* Quick Theme Switcher */}
             <button
               onClick={toggleTheme}
               className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 border border-slate-200/80 dark:border-white/10 transition-all cursor-pointer shadow-xs"
@@ -384,25 +415,25 @@ export default function App() {
             title="Account & Settings"
           >
             <div className="flex items-center space-x-2.5 min-w-0">
-              {account?.picture ? (
+              {currentUser?.picture ? (
                 <img 
-                  src={account.picture} 
+                  src={currentUser.picture} 
                   alt="Avatar" 
                   className="w-8 h-8 rounded-full border border-violet-500 flex-shrink-0" 
                 />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-bold flex items-center justify-center text-xs flex-shrink-0">
-                  {(account?.name || account?.email || 'U').charAt(0).toUpperCase()}
+                  {(currentUser?.name || currentUser?.email || 'U').charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="min-w-0">
                 <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                  {account?.name || 'Gmail User'}
+                  {currentUser?.name || 'Gmail User'}
                 </p>
                 <div className="flex items-center space-x-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[10px] text-slate-400 font-mono truncate">
-                    {isLiveMode ? 'Live Gmail' : 'Demo Mode'}
+                    {currentUser?.email}
                   </span>
                 </div>
               </div>
@@ -417,17 +448,17 @@ export default function App() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>Groq LPU Active</span>
             </span>
-            <span className="font-mono text-[10px] text-slate-500">v1.0</span>
+            <span className="font-mono text-[10px] text-slate-500">v2.0 Multi-User</span>
           </div>
 
         </div>
 
       </aside>
 
-      {/* Main Screen Container (100% Dedicated per Tab) */}
+      {/* Main Screen Container */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         
-        {/* Top Floating Mobile / Tablet Bar */}
+        {/* Top Header Bar */}
         <header className="px-4 sm:px-8 py-4 border-b border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-[#0A0C13]/60 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between">
           <div>
             <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -438,22 +469,25 @@ export default function App() {
             </p>
           </div>
 
-          <div className="flex items-center space-x-2">
-            {isLiveMode ? (
-              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-mono">{account.email}</span>
-              </span>
-            ) : (
-              <button
-                onClick={connectGmail}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-xs cursor-pointer"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
-                <span>Connect Live Gmail</span>
-              </button>
-            )}
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* User Profile Pill */}
+            <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-mono truncate max-w-[180px]">{currentUser?.email}</span>
+            </div>
 
+            {/* Sync Button */}
+            <button
+              onClick={() => handleTriggerSync()}
+              disabled={isSyncing}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-xs cursor-pointer disabled:opacity-50"
+              title="Sync recent emails from Gmail"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
+            </button>
+
+            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer border border-slate-200/60 dark:border-white/10"
@@ -466,12 +500,22 @@ export default function App() {
               )}
             </button>
 
+            {/* Settings */}
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
               title="Settings"
             >
               <Settings className="w-4 h-4" />
+            </button>
+
+            {/* Logout */}
+            <button
+              onClick={logout}
+              className="p-2 rounded-xl text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+              title="Log Out"
+            >
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>
@@ -554,7 +598,7 @@ export default function App() {
                 onPageChange={(p) => setCurrentPage(p)}
                 onTriggerSync={handleTriggerSync}
                 isSyncing={isSyncing}
-                isConnected={isConnected}
+                isConnected={isAuthenticated}
                 onConnectGmail={connectGmail}
               />
             )

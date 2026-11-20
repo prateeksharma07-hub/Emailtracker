@@ -1,30 +1,30 @@
 import express from 'express';
 import { db } from '../db/database.js';
-import { getActiveAccount } from '../services/oauthService.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+router.use(requireAuth);
+
 /**
  * GET /api/analytics
- * Returns comprehensive analytics metrics for the dashboard associated with the active account
+ * Returns comprehensive analytics metrics strictly for the authenticated user
  */
 router.get('/', (req, res) => {
   try {
-    const activeAccount = getActiveAccount();
-    const accountFilter = activeAccount ? 'WHERE account_id = ?' : 'WHERE 1=0';
-    const params = activeAccount ? [activeAccount.id] : [];
+    const userId = req.user.id;
 
-    const totalEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter}`).get(...params)?.count || 0;
-    const unreadEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter} AND is_read = 0`).get(...params)?.count || 0;
-    const sensitiveEmails = db.prepare(`SELECT COUNT(*) as count FROM emails ${accountFilter} AND is_sensitive = 1`).get(...params)?.count || 0;
+    const totalEmails = db.prepare('SELECT COUNT(*) as count FROM emails WHERE user_id = ?').get(userId)?.count || 0;
+    const unreadEmails = db.prepare('SELECT COUNT(*) as count FROM emails WHERE user_id = ? AND is_read = 0').get(userId)?.count || 0;
+    const sensitiveEmails = db.prepare('SELECT COUNT(*) as count FROM emails WHERE user_id = ? AND is_sensitive = 1').get(userId)?.count || 0;
     
     // Categories breakdown
     const categoryRows = db.prepare(`
       SELECT category, COUNT(*) as count 
       FROM emails 
-      ${accountFilter}
+      WHERE user_id = ?
       GROUP BY category
-    `).all(...params);
+    `).all(userId);
 
     const categoryMap = {
       Urgent: 0,
@@ -47,9 +47,10 @@ router.get('/', (req, res) => {
     const priorityRows = db.prepare(`
       SELECT priority_score, COUNT(*) as count 
       FROM emails 
-      ${accountFilter}
+      WHERE user_id = ?
       GROUP BY priority_score
-    `).all(...params);
+    `).all(userId);
+
     const priorityMap = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     priorityRows.forEach(row => {
       if (priorityMap[row.priority_score] !== undefined) {
@@ -58,19 +59,13 @@ router.get('/', (req, res) => {
     });
 
     // Drafts metrics
-    const draftFilter = activeAccount 
-      ? 'WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)' 
-      : 'WHERE 1=0';
-    const pendingDrafts = db.prepare(`SELECT COUNT(*) as count FROM drafts ${draftFilter} AND status = 'PENDING_APPROVAL'`).get(...params)?.count || 0;
-    const sentDrafts = db.prepare(`SELECT COUNT(*) as count FROM drafts ${draftFilter} AND status IN ('SENT', 'CREATED_IN_GMAIL', 'APPROVED')`).get(...params)?.count || 0;
+    const pendingDrafts = db.prepare("SELECT COUNT(*) as count FROM drafts WHERE user_id = ? AND status = 'PENDING_APPROVAL'").get(userId)?.count || 0;
+    const sentDrafts = db.prepare("SELECT COUNT(*) as count FROM drafts WHERE user_id = ? AND status IN ('SENT', 'CREATED_IN_GMAIL', 'APPROVED')").get(userId)?.count || 0;
 
     // Tasks metrics
-    const taskFilter = activeAccount 
-      ? 'WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)' 
-      : 'WHERE 1=0';
-    const totalTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter}`).get(...params)?.count || 0;
-    const pendingTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter} AND is_completed = 0`).get(...params)?.count || 0;
-    const completedTasks = db.prepare(`SELECT COUNT(*) as count FROM tasks ${taskFilter} AND is_completed = 1`).get(...params)?.count || 0;
+    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE user_id = ?').get(userId)?.count || 0;
+    const pendingTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE user_id = ? AND is_completed = 0').get(userId)?.count || 0;
+    const completedTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE user_id = ? AND is_completed = 1').get(userId)?.count || 0;
 
     // Estimated hours saved (approx. 4.5 minutes per AI analyzed email)
     const minutesSaved = Math.round(totalEmails * 4.5);
@@ -78,7 +73,7 @@ router.get('/', (req, res) => {
 
     res.json({
       success: true,
-      account: activeAccount,
+      user: req.user,
       metrics: {
         totalEmails,
         unreadEmails,

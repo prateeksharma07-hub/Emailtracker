@@ -1,16 +1,13 @@
 import { google } from 'googleapis';
 import crypto from 'node:crypto';
 import { db } from '../db/database.js';
+import { encryptToken, decryptToken } from './cryptoService.js';
 
 /**
- * MINIMUM PERMISSIONS SCOPES (PHASE 2 COMPLIANT)
+ * MINIMUM PERMISSIONS SCOPES (MULTI-USER PRIVACY COMPLIANT)
  * - Reading Gmail messages: https://www.googleapis.com/auth/gmail.readonly
  * - Creating Gmail drafts: https://www.googleapis.com/auth/gmail.compose
  * - User Profile info: userinfo.email, userinfo.profile
- * 
- * STRICT PRIVACY REQUIREMENT:
- * - NO https://www.googleapis.com/auth/gmail.send
- * - NO automatic deletion, archiving, or forwarding.
  */
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
@@ -20,7 +17,7 @@ const SCOPES = [
 ];
 
 /**
- * Checks whether Google OAuth credentials are provided in .env
+ * Checks whether Google OAuth credentials are provided in environment
  */
 export function isOAuthConfigured() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -55,7 +52,6 @@ export function createOAuth2Client() {
  * to protect against Cross-Site Request Forgery (CSRF).
  */
 export function generateOAuthState() {
-  // Purge states older than 15 minutes (TTL)
   const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
   db.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(fifteenMinutesAgo);
 
@@ -90,7 +86,7 @@ export function getAuthUrl() {
 
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline', // Requests refresh_token
-    prompt: 'consent',       // Forces approval screen to ensure fresh refresh_token
+    prompt: 'consent',       // Forces approval screen to guarantee fresh refresh_token
     scope: SCOPES,
     state,
     include_granted_scopes: true
@@ -100,13 +96,41 @@ export function getAuthUrl() {
 }
 
 /**
- * Handles OAuth 2.0 callback, exchanges authorization code for tokens,
- * validates user profile and persists account in SQLite.
+ * Creates a 7-day session for a user in the `sessions` table
+ */
+export function createUserSession(userId) {
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  db.prepare(`
+    INSERT INTO sessions (id, user_id, expires_at)
+    VALUES (?, ?, ?)
+  `).run(sessionId, userId, expiresAt);
+
+  return { sessionId, expiresAt };
+}
+
+/**
+ * Destroys a session from database
+ */
+export function destroySession(sessionId) {
+  if (!sessionId) return;
+  db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+}
+
+/**
+ * Handles OAuth 2.0 callback:
+ * 1. Validates CSRF state
+ * 2. Exchanges code for Google tokens
+ * 3. Fetches userinfo
+ * 4. Encrypts tokens with AES-256-GCM
+ * 5. Upserts user in SQLite `users` table
+ * 6. Creates a 7-day session
  * 
- * TOKENS ARE NEVER LOGGED OR EXPOSED TO THE FRONTEND.
+ * TOKENS ARE NEVER LOGGED, NEVER SENT TO FRONTEND, AND NEVER STORED IN PLAINTEXT.
  */
 export async function handleOAuthCallback(code, state) {
-  // 1. CSRF Protection Check
+  // 1. CSRF validation
   const isValidState = validateOAuthState(state);
   if (!isValidState) {
     const err = new Error('CSRF validation failed: Invalid or expired OAuth state parameter.');
@@ -114,7 +138,7 @@ export async function handleOAuthCallback(code, state) {
     throw err;
   }
 
-  // 2. Token Exchange
+  // 2. Token exchange
   const oauth2Client = createOAuth2Client();
   let tokens;
   try {
@@ -129,190 +153,168 @@ export async function handleOAuthCallback(code, state) {
 
   oauth2Client.setCredentials(tokens);
 
-  // 3. Retrieve user profile info
+  // 3. Userinfo retrieval
   const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
   const profileRes = await oauth2.userinfo.get();
   const profile = profileRes.data;
 
-  const accountId = profile.id || 'acc_' + Date.now();
+  const googleId = profile.id;
   const email = profile.email;
   const name = profile.name || email.split('@')[0];
   const picture = profile.picture || null;
-  const accessToken = tokens.access_token;
-  const refreshToken = tokens.refresh_token || null;
   const tokenExpiry = tokens.expiry_date || (Date.now() + 3600 * 1000);
-  const scope = tokens.scope || SCOPES.join(' ');
 
-  // 4. Upsert account in local SQLite
-  const stmt = db.prepare(`
-    INSERT INTO accounts (id, email, name, picture, access_token, refresh_token, token_expiry, scope, last_synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(email) DO UPDATE SET
-      name = excluded.name,
-      picture = excluded.picture,
-      access_token = excluded.access_token,
-      refresh_token = COALESCE(excluded.refresh_token, accounts.refresh_token),
-      token_expiry = excluded.token_expiry,
-      scope = excluded.scope
-  `);
+  // 4. AES-256-GCM token encryption
+  const accessTokenEnc = encryptToken(tokens.access_token);
+  const refreshTokenEnc = tokens.refresh_token ? encryptToken(tokens.refresh_token) : null;
 
-  stmt.run(accountId, email, name, picture, accessToken, refreshToken, tokenExpiry, scope);
+  // 5. Upsert user in `users` table
+  let existingUser = db.prepare('SELECT id, refresh_token_enc FROM users WHERE google_id = ? OR email = ?').get(googleId, email);
+  let userId;
 
-  // 5. Clean up demo account so live user sees ONLY their real inbox
-  try {
-    db.prepare("DELETE FROM accounts WHERE id = 'demo_account'").run();
-    db.prepare("DELETE FROM emails WHERE account_id = 'demo_account'").run();
-    db.prepare("DELETE FROM tasks WHERE email_id NOT IN (SELECT id FROM emails)").run();
-    db.prepare("DELETE FROM drafts WHERE email_id NOT IN (SELECT id FROM emails)").run();
-  } catch (cleanErr) {
-    console.warn('[OAuth] Demo cleanup notice:', cleanErr.message);
+  if (existingUser) {
+    userId = existingUser.id;
+    // Keep existing refresh_token if Google did not return a new one this time
+    const updatedRefreshEnc = refreshTokenEnc || existingUser.refresh_token_enc;
+
+    db.prepare(`
+      UPDATE users 
+      SET google_id = ?,
+          email = ?,
+          name = ?,
+          picture = ?,
+          access_token_enc = ?,
+          refresh_token_enc = ?,
+          token_expiry = ?
+      WHERE id = ?
+    `).run(googleId, email, name, picture, accessTokenEnc, updatedRefreshEnc, tokenExpiry, userId);
+  } else {
+    userId = 'usr_' + crypto.randomBytes(8).toString('hex');
+    db.prepare(`
+      INSERT INTO users (id, google_id, email, name, picture, access_token_enc, refresh_token_enc, token_expiry)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, googleId, email, name, picture, accessTokenEnc, refreshTokenEnc, tokenExpiry);
   }
 
-  // 6. Record activity log without exposing sensitive tokens
+  // 6. Issue 7-day session
+  const { sessionId, expiresAt } = createUserSession(userId);
+
+  // 7. Safe audit log
   db.prepare(`
-    INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO activity_logs (id, user_id, event_type, severity, message, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     'log_' + Date.now(),
+    userId,
     'OAUTH_CONNECTED',
     'INFO',
-    `Successfully authenticated live Gmail account: ${email}`,
-    JSON.stringify({ accountId, email, name })
+    `Authenticated user via Google OAuth: ${email}`,
+    JSON.stringify({ userId, email, name })
   );
 
   return {
-    accountId,
-    email,
-    name,
-    picture,
-    is_demo: false
+    user: {
+      id: userId,
+      google_id: googleId,
+      email,
+      name,
+      picture
+    },
+    sessionId,
+    expiresAt
   };
 }
 
 /**
- * Returns an authenticated OAuth2 client with auto token refresh for a given account.
- * Handles expired and revoked tokens safely.
+ * Returns an authenticated OAuth2 client with auto-refresh configured for a specific user.
+ * Decrypts tokens in-memory and re-encrypts updated tokens upon automatic refresh.
  */
-export async function getAuthenticatedClient(accountId) {
-  let account;
-  if (accountId) {
-    account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId);
-  } else {
-    account = db.prepare('SELECT * FROM accounts ORDER BY created_at DESC LIMIT 1').get();
-  }
-
-  if (!account) {
-    const err = new Error('No connected Google account found in database. Please connect your Gmail account.');
-    err.code = 'NO_ACCOUNT';
+export async function getAuthenticatedClientForUser(userId) {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    const err = new Error('User not found.');
+    err.code = 'USER_NOT_FOUND';
     throw err;
   }
 
-  // Handle Demo Account
-  if (account.id === 'demo_account' || account.access_token === 'mock_token') {
-    return { oauth2Client: null, account, isDemo: true };
+  const plainAccessToken = decryptToken(user.access_token_enc);
+  const plainRefreshToken = decryptToken(user.refresh_token_enc);
+
+  if (!plainAccessToken && !plainRefreshToken) {
+    const err = new Error('User has no valid Google authentication tokens. Please reconnect your Gmail account.');
+    err.code = 'TOKEN_EXPIRED';
+    throw err;
   }
 
   const oauth2Client = createOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: account.access_token,
-    refresh_token: account.refresh_token,
-    expiry_date: account.token_expiry
+    access_token: plainAccessToken,
+    refresh_token: plainRefreshToken,
+    expiry_date: user.token_expiry
   });
 
-  // Persist auto-refreshed access tokens
+  // Listen for auto-refresh events: persist re-encrypted tokens
   oauth2Client.on('tokens', (newTokens) => {
-    if (newTokens.access_token) {
-      db.prepare(`
-        UPDATE accounts 
-        SET access_token = ?, 
-            token_expiry = ?,
-            refresh_token = COALESCE(?, refresh_token)
-        WHERE id = ?
-      `).run(
-        newTokens.access_token,
-        newTokens.expiry_date || (Date.now() + 3600 * 1000),
-        newTokens.refresh_token || null,
-        account.id
-      );
+    try {
+      const newAccessEnc = newTokens.access_token ? encryptToken(newTokens.access_token) : null;
+      const newRefreshEnc = newTokens.refresh_token ? encryptToken(newTokens.refresh_token) : null;
+      const newExpiry = newTokens.expiry_date || (Date.now() + 3600 * 1000);
+
+      if (newAccessEnc && newRefreshEnc) {
+        db.prepare(`
+          UPDATE users 
+          SET access_token_enc = ?, 
+              refresh_token_enc = ?, 
+              token_expiry = ? 
+          WHERE id = ?
+        `).run(newAccessEnc, newRefreshEnc, newExpiry, userId);
+      } else if (newAccessEnc) {
+        db.prepare(`
+          UPDATE users 
+          SET access_token_enc = ?, 
+              token_expiry = ? 
+          WHERE id = ?
+        `).run(newAccessEnc, newExpiry, userId);
+      }
+    } catch (persistErr) {
+      console.error('[OAuth Refresh Persist Error]', persistErr.message);
     }
   });
 
-  return { oauth2Client, account, isDemo: false };
+  return { oauth2Client, user };
 }
 
 /**
- * Retrieves the currently active connected Gmail account.
- * NEVER returns access_token or refresh_token to callers or the frontend.
+ * Permanently deletes all data and revokes Google OAuth token for a user.
  */
-export function getActiveAccount() {
-  // Prioritize real connected Gmail accounts over demo_account
-  const row = db.prepare(`
-    SELECT id, email, name, picture, created_at, last_synced_at, access_token 
-    FROM accounts 
-    ORDER BY CASE WHEN id = 'demo_account' THEN 1 ELSE 0 END, created_at DESC 
-    LIMIT 1
-  `).get();
-
-  if (!row) return null;
-
-  const isDemo = row.id === 'demo_account' || row.access_token === 'mock_token';
-
-  // Sanitize: strip tokens
-  return {
-    id: row.id,
-    email: row.email,
-    name: row.name,
-    picture: row.picture,
-    created_at: row.created_at,
-    last_synced_at: row.last_synced_at,
-    is_demo: isDemo
-  };
-}
-
-/**
- * Disconnects an account, attempts token revocation with Google,
- * and removes credentials and records from local SQLite.
- */
-export async function disconnectAccount(accountId) {
-  let target = null;
-  if (accountId) {
-    target = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId);
-  } else {
-    target = db.prepare('SELECT * FROM accounts ORDER BY created_at DESC LIMIT 1').get();
+export async function deleteUserAndData(userId) {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    return { success: false, message: 'User not found.' };
   }
 
-  if (!target) {
-    return { success: false, message: 'No connected account to disconnect.' };
-  }
-
-  // Attempt Google token revocation if real credentials exist
-  if (target.access_token && target.access_token !== 'mock_token' && isOAuthConfigured()) {
+  // Attempt Google token revocation
+  const plainAccessToken = decryptToken(user.access_token_enc);
+  if (plainAccessToken && isOAuthConfigured()) {
     try {
       const oauth2Client = createOAuth2Client();
-      oauth2Client.setCredentials({ access_token: target.access_token });
-      await oauth2Client.revokeToken(target.access_token);
+      oauth2Client.setCredentials({ access_token: plainAccessToken });
+      await oauth2Client.revokeToken(plainAccessToken);
     } catch (revokeErr) {
-      console.warn('[OAuth Service] Token revocation with Google completed with note:', revokeErr.message);
+      console.warn('[OAuth Service] Google token revocation notice:', revokeErr.message);
     }
   }
 
-  // Delete associated records first, then emails and accounts to preserve integrity
-  db.prepare('DELETE FROM drafts WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)').run(target.id);
-  db.prepare('DELETE FROM tasks WHERE email_id IN (SELECT id FROM emails WHERE account_id = ?)').run(target.id);
-  db.prepare('DELETE FROM emails WHERE account_id = ?').run(target.id);
-  db.prepare('DELETE FROM accounts WHERE id = ?').run(target.id);
+  // Strictly wipe all user-associated records
+  db.prepare('DELETE FROM drafts WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM tasks WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM emails WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM activity_logs WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 
-  // Log disconnect
-  db.prepare(`
-    INSERT INTO activity_logs (id, event_type, severity, message, metadata)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    'log_' + Date.now(),
-    'OAUTH_DISCONNECTED',
-    'INFO',
-    `Disconnected account: ${target.email}`,
-    JSON.stringify({ accountId: target.id, email: target.email })
-  );
-
-  return { success: true, message: `Successfully disconnected ${target.email}.` };
+  return {
+    success: true,
+    message: `Account and all associated email intelligence data for ${user.email} have been permanently deleted.`
+  };
 }

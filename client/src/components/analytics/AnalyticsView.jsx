@@ -11,13 +11,14 @@ import {
   Zap, 
   ShieldAlert 
 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function AnalyticsView() {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/analytics')
+    apiFetch('/api/analytics')
       .then(r => r.json())
       .then(res => {
         if (res.success) {

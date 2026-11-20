@@ -1,22 +1,38 @@
--- MAILMIND AI — SQLite Relational Database Schema
+-- MAILMIND AI — SQLite Relational Database Schema (Multi-User SaaS)
 
--- 1. Connected Gmail Accounts via OAuth 2.0
-CREATE TABLE IF NOT EXISTS accounts (
+-- 1. Users Table (Multi-User Accounts)
+CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
+  google_id TEXT UNIQUE NOT NULL,
   email TEXT UNIQUE NOT NULL,
   name TEXT,
   picture TEXT,
-  access_token TEXT,
-  refresh_token TEXT,
+  access_token_enc TEXT,
+  refresh_token_enc TEXT,
   token_expiry INTEGER,
-  scope TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  last_synced_at DATETIME
+  last_sync_at DATETIME
 );
 
--- 2. Synced Emails
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+
+-- 2. Sessions Table (Cookie-based Sessions)
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+-- 3. Synced Emails (Per-User Isolated)
 CREATE TABLE IF NOT EXISTS emails (
   id TEXT PRIMARY KEY,                       -- Gmail Message ID
+  user_id TEXT,
   thread_id TEXT NOT NULL,
   account_id TEXT,
   sender TEXT NOT NULL,
@@ -35,32 +51,27 @@ CREATE TABLE IF NOT EXISTS emails (
   summary TEXT,
   ai_processed INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Index for high-velocity queries
-CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date_received DESC);
-CREATE INDEX IF NOT EXISTS idx_emails_category ON emails(category);
-CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority_score);
-CREATE INDEX IF NOT EXISTS idx_emails_sensitive ON emails(is_sensitive);
-
--- 3. Extracted Tasks & Deadlines
+-- 4. Extracted Tasks & Deadlines (Per-User Isolated)
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   email_id TEXT NOT NULL,
   task_title TEXT NOT NULL,
   deadline_date TEXT,
   deadline_text TEXT,
   is_completed INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_email ON tasks(email_id);
-
--- 4. AI-Generated Reply Drafts (Human-in-the-Loop Approval Required)
+-- 5. AI-Generated Reply Drafts (Human-in-the-Loop Approval Required, Per-User)
 CREATE TABLE IF NOT EXISTS drafts (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   email_id TEXT NOT NULL,
   to_address TEXT NOT NULL,
   subject TEXT NOT NULL,
@@ -70,31 +81,30 @@ CREATE TABLE IF NOT EXISTS drafts (
   approved_at DATETIME,
   sent_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
-
--- 5. Safety Audit & Operational Activity Logs
+-- 6. Safety Audit & Operational Activity Logs (Per-User Isolated)
 CREATE TABLE IF NOT EXISTS activity_logs (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   event_type TEXT NOT NULL,                  -- 'OAUTH_CONNECTED', 'SYNC_COMPLETED', 'PII_PROTECTED', 'AI_CLASSIFIED', 'DRAFT_APPROVED', 'EMAIL_SENT'
   severity TEXT DEFAULT 'INFO',              -- 'INFO', 'WARNING', 'SECURITY', 'ERROR'
   message TEXT NOT NULL,
   metadata TEXT,                             -- JSON encoded metadata
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_logs_created ON activity_logs(created_at DESC);
-
--- 6. User Preferences & Settings
+-- 7. User Preferences & Settings
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. OAuth 2.0 CSRF Protection States
+-- 8. OAuth 2.0 CSRF Protection States
 CREATE TABLE IF NOT EXISTS oauth_states (
   state TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL

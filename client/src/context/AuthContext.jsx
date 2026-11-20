@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '../utils/api';
 
 const AuthContext = createContext({
+  user: null,
   account: null,
+  isAuthenticated: false,
   isConnected: false,
-  isDemoMode: false,
-  isLiveMode: false,
   isLoading: true,
   isSyncing: false,
   lastSyncedAt: null,
@@ -14,12 +15,14 @@ const AuthContext = createContext({
   checkAuthStatus: () => {},
   triggerSync: () => {},
   connectGmail: () => {},
+  logout: () => {},
   disconnectAccount: () => {},
+  deleteAccountData: () => {},
   clearAuthNotification: () => {}
 });
 
 export function AuthProvider({ children }) {
-  const [account, setAccount] = useState(null);
+  const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
@@ -37,10 +40,9 @@ export function AuthProvider({ children }) {
       setAuthNotification({
         type: 'success',
         message: authAccount 
-          ? `Successfully connected live Gmail account: ${authAccount}` 
-          : 'Google OAuth connection successful! Live synchronization ready.'
+          ? `Successfully connected Gmail account: ${authAccount}` 
+          : 'Google OAuth connection successful! Welcome to MailMind AI.'
       });
-      // Clean query parameters from URL without reloading
       window.history.replaceState({}, document.title, window.location.pathname);
       checkAuthStatus();
     } else if (authError) {
@@ -52,27 +54,44 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Listen for unauthorized events across the entire application
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+      setAuthNotification({
+        type: 'info',
+        message: 'Your session has expired. Please connect your Gmail account to continue.'
+      });
+    };
+
+    window.addEventListener('mailmind:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('mailmind:unauthorized', handleUnauthorized);
+  }, []);
+
   const checkAuthStatus = useCallback(async () => {
     try {
       // 1. Health check
-      const healthRes = await fetch('/api/health');
+      const healthRes = await apiFetch('/api/health');
       if (healthRes.ok) {
         const healthData = await healthRes.json();
         setServerStatus(healthData);
       }
 
-      // 2. Account auth status
-      const authRes = await fetch('/api/auth/status');
-      if (authRes.ok) {
-        const authData = await authRes.json();
-        if (authData.success && authData.account) {
-          setAccount(authData.account);
+      // 2. Fetch authenticated user profile
+      const meRes = await apiFetch('/api/auth/me');
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        if (meData.authenticated && meData.user) {
+          setUser(meData.user);
         } else {
-          setAccount(null);
+          setUser(null);
         }
+      } else {
+        setUser(null);
       }
     } catch (err) {
-      console.warn('[MAILMIND] Server offline or not reachable:', err.message);
+      console.warn('[MAILMIND] Server check error:', err.message);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -82,21 +101,20 @@ export function AuthProvider({ children }) {
     checkAuthStatus();
   }, [checkAuthStatus]);
 
-  // Triggers live sync (latest 20 emails)
+  // Triggers live sync for authenticated user
   const triggerSync = async (options = {}) => {
+    if (!user) return;
     setIsSyncing(true);
     setSyncStatus({ state: 'syncing', message: 'Syncing inbox with Gmail...' });
 
-    // Safety timeout prevents UI spinner from hanging indefinitely (60s threshold for large batches)
     const safetyTimer = setTimeout(() => {
       setIsSyncing(false);
       checkAuthStatus();
     }, 60000);
 
     try {
-      const res = await fetch('/api/emails/sync', {
+      const res = await apiFetch('/api/emails/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
       });
       clearTimeout(safetyTimer);
@@ -118,9 +136,7 @@ export function AuthProvider({ children }) {
 
       setSyncStatus({
         state: 'success',
-        message: data.mode === 'LIVE'
-          ? `Live sync complete: ${data.newEmailsCount} new emails, ${data.skippedDuplicates || 0} duplicates skipped.`
-          : 'Demo inbox refreshed.',
+        message: `Live sync complete: ${data.newEmailsCount} new emails, ${data.skippedDuplicates || 0} duplicates skipped.`,
         newCount: data.newEmailsCount,
         lastSyncedAt: data.lastSyncedAt || new Date().toISOString()
       });
@@ -139,14 +155,13 @@ export function AuthProvider({ children }) {
   // Initiates Google OAuth consent flow
   const connectGmail = async () => {
     try {
-      const res = await fetch('/api/auth/url');
+      const res = await apiFetch('/api/auth/url');
       const data = await res.json();
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Google OAuth credentials not configured on backend.');
       }
 
-      // Redirect user to Google authorization consent screen
       window.location.href = data.url;
     } catch (err) {
       setAuthNotification({
@@ -157,20 +172,38 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Disconnects active account
-  const disconnectAccount = async () => {
+  // Logs out user
+  const logout = async () => {
     try {
       setIsLoading(true);
-      await fetch('/api/auth/disconnect', { method: 'POST' });
-      setAccount(null);
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
       setSyncStatus(null);
       setAuthNotification({
         type: 'info',
-        message: 'Account successfully disconnected.'
+        message: 'You have been logged out successfully.'
       });
-      await checkAuthStatus();
     } catch (err) {
-      console.error('Disconnect failed:', err);
+      console.error('Logout error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Permanently deletes all user emails, tasks, drafts, logs and revokes token
+  const deleteAccountData = async () => {
+    try {
+      setIsLoading(true);
+      const res = await apiFetch('/api/auth/me', { method: 'DELETE' });
+      const data = await res.json();
+      setUser(null);
+      setSyncStatus(null);
+      setAuthNotification({
+        type: 'info',
+        message: data.message || 'All user data and Google access have been permanently removed.'
+      });
+    } catch (err) {
+      console.error('Delete user data failed:', err);
     } finally {
       setIsLoading(false);
     }
@@ -180,27 +213,27 @@ export function AuthProvider({ children }) {
     setAuthNotification(null);
   };
 
-  const isConnected = Boolean(account);
-  const isDemoMode = Boolean(account?.is_demo);
-  const isLiveMode = Boolean(account && !account.is_demo);
+  const isAuthenticated = Boolean(user);
 
   return (
     <AuthContext.Provider
       value={{
-        account,
-        isConnected,
-        isDemoMode,
-        isLiveMode,
+        user,
+        account: user, // Alias for backward compatibility
+        isAuthenticated,
+        isConnected: isAuthenticated,
         isLoading,
         isSyncing,
-        lastSyncedAt: account?.last_synced_at || syncStatus?.lastSyncedAt || null,
+        lastSyncedAt: user?.last_sync_at || syncStatus?.lastSyncedAt || null,
         syncStatus,
         authNotification,
         serverStatus,
         checkAuthStatus,
         triggerSync,
         connectGmail,
-        disconnectAccount,
+        logout,
+        disconnectAccount: deleteAccountData, // Alias
+        deleteAccountData,
         clearAuthNotification
       }}
     >

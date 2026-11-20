@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Send, AlertTriangle, X, CheckCircle, Sparkles, Edit3 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function HumanApprovalModal({ draft, isOpen, onClose, onSent }) {
   if (!isOpen || !draft) return null;
@@ -33,9 +34,8 @@ export default function HumanApprovalModal({ draft, isOpen, onClose, onSent }) {
       setIsSending(true);
       setError(null);
 
-      const res = await fetch(`/api/drafts/${draft.id}/send`, {
+      const res = await apiFetch(`/api/drafts/${draft.id}/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           confirmHumanApproval: true,
           overrides: {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, ShieldAlert, KeyRound, Mail, Send, Sparkles, Filter, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 export default function ActivityLogsView() {
   const [logs, setLogs] = useState([]);
@@ -10,7 +11,7 @@ export default function ActivityLogsView() {
     try {
       setIsLoading(true);
       const url = severityFilter ? `/api/logs?severity=${severityFilter}` : '/api/logs';
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (data.success) {
         setLogs(data.logs || []);

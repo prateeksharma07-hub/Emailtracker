@@ -1,9 +1,17 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables reliably from server directory
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+
 import { initDb, db } from './db/database.js';
 
 // Route handlers
@@ -15,21 +23,16 @@ import analyticsRouter from './routes/analytics.js';
 import logsRouter from './routes/logs.js';
 import tasksRouter from './routes/tasks.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load environment variables reliably from server directory
-dotenv.config({ path: path.resolve(__dirname, '.env') });
-
 const app = express();
 const PORT = process.env.PORT || 5001;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5174';
 
 // Middleware
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5174'],
+  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5174', 'http://127.0.0.1:5173'],
   credentials: true
 }));
+app.use(cookieParser(process.env.SESSION_SECRET || 'mailmind-session-secret'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -39,11 +42,11 @@ initDb();
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   try {
-    const accountCount = db.prepare('SELECT COUNT(*) as count FROM accounts').get()?.count || 0;
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get()?.count || 0;
     const emailCount = db.prepare('SELECT COUNT(*) as count FROM emails').get()?.count || 0;
+    const activeSessions = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE expires_at > ?').get(Date.now())?.count || 0;
     const isAIConfigured = Boolean(
-      (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_')) ||
-      (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.startsWith('AIzaSy'))
+      process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_')
     );
     const isOAuthConfigured = Boolean(
       process.env.GOOGLE_CLIENT_ID && 
@@ -54,17 +57,19 @@ app.get('/api/health', (req, res) => {
 
     res.json({
       status: 'ok',
-      service: 'MAILMIND AI Backend API',
-      version: '1.0.0',
+      service: 'MAILMIND AI Multi-User Backend API',
+      version: '2.0.0',
       database: 'connected',
+      multiUser: true,
       stats: {
-        connectedAccounts: accountCount,
+        totalUsers: userCount,
+        activeSessions,
         syncedEmails: emailCount
       },
       config: {
         aiActive: isAIConfigured,
         geminiActive: isAIConfigured, // backwards compatibility
-        aiEngine: process.env.GROQ_API_KEY ? 'Groq LPU (Ultra-Fast)' : 'Heuristic Engine',
+        aiEngine: 'Groq LPU (Ultra-Fast)',
         oauthConfigured: isOAuthConfigured
       },
       timestamp: new Date().toISOString()
@@ -80,12 +85,17 @@ app.get('/api/health', (req, res) => {
 // Root API welcome
 app.get('/api', (req, res) => {
   res.json({
-    name: 'MAILMIND AI API',
+    name: 'MAILMIND AI Multi-User API',
     tagline: 'Autonomous, Privacy-First Email Intelligence Agent',
+    version: '2.0.0',
     endpoints: [
       '/api/health',
-      '/api/auth',
+      '/api/auth/google',
+      '/api/auth/callback',
+      '/api/auth/me',
+      '/api/auth/logout',
       '/api/emails',
+      '/api/emails/sync',
       '/api/ai',
       '/api/drafts',
       '/api/analytics',
@@ -127,9 +137,10 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`===============================================`);
-  console.log(`🧠 MAILMIND AI Server running on port ${PORT}`);
+  console.log(`🧠 MAILMIND AI Multi-User Server running on port ${PORT}`);
   console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
   console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
   console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
+  console.log(`🔒 AES-256-GCM Token Encryption: Active`);
   console.log(`===============================================`);
 });

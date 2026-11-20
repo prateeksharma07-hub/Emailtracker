@@ -1,30 +1,29 @@
 import express from 'express';
 import { db } from '../db/database.js';
 import { createGmailDraft } from '../services/gmailService.js';
-import { getActiveAccount } from '../services/oauthService.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+router.use(requireAuth);
+
 /**
  * GET /api/drafts
- * Lists all drafts with associated email information for the active account
+ * Lists all drafts strictly for the authenticated user
  */
 router.get('/', (req, res) => {
   try {
-    const activeAccount = getActiveAccount();
-    if (!activeAccount) {
-      return res.json({ success: true, drafts: [] });
-    }
-
+    const userId = req.user.id;
     const { status } = req.query;
+
     let sql = `
       SELECT d.*, e.sender as original_sender, e.sender_name as original_sender_name, 
              e.subject as original_subject, e.category, e.priority_score
       FROM drafts d
       INNER JOIN emails e ON d.email_id = e.id
-      WHERE e.account_id = ?
+      WHERE d.user_id = ?
     `;
-    const params = [activeAccount.id];
+    const params = [userId];
 
     if (status) {
       sql += ' AND d.status = ?';
@@ -42,20 +41,21 @@ router.get('/', (req, res) => {
 
 /**
  * GET /api/drafts/:id
- * Fetches a single draft
+ * Fetches a single draft strictly owned by req.user.id
  */
 router.get('/:id', (req, res) => {
   try {
+    const userId = req.user.id;
     const draft = db.prepare(`
       SELECT d.*, e.sender as original_sender, e.sender_name as original_sender_name, 
              e.subject as original_subject, e.category, e.body_text as original_body
       FROM drafts d
       LEFT JOIN emails e ON d.email_id = e.id
-      WHERE d.id = ?
-    `).get(req.params.id);
+      WHERE d.id = ? AND d.user_id = ?
+    `).get(req.params.id, userId);
 
     if (!draft) {
-      return res.status(404).json({ success: false, error: 'Draft not found' });
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
     }
 
     res.json({ success: true, draft });
@@ -66,15 +66,16 @@ router.get('/:id', (req, res) => {
 
 /**
  * PUT /api/drafts/:id
- * Allows human editing of draft before approval
+ * Allows human editing of draft strictly owned by req.user.id
  */
 router.put('/:id', (req, res) => {
   try {
+    const userId = req.user.id;
     const { to_address, subject, reply_body, tone } = req.body;
-    const existing = db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id);
 
+    const existing = db.prepare('SELECT id FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     if (!existing) {
-      return res.status(404).json({ success: false, error: 'Draft not found' });
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
     }
 
     db.prepare(`
@@ -83,10 +84,10 @@ router.put('/:id', (req, res) => {
           subject = COALESCE(?, subject),
           reply_body = COALESCE(?, reply_body),
           tone = COALESCE(?, tone)
-      WHERE id = ?
-    `).run(to_address, subject, reply_body, tone, req.params.id);
+      WHERE id = ? AND user_id = ?
+    `).run(to_address, subject, reply_body, tone, req.params.id, userId);
 
-    const updated = db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id);
+    const updated = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
     res.json({ success: true, draft: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -96,10 +97,10 @@ router.put('/:id', (req, res) => {
 /**
  * POST /api/drafts/:id/approve
  * STRICT HUMAN-IN-THE-LOOP APPROVAL ENDPOINT
- * Saves approved draft in Gmail Drafts (using minimum permissions `gmail.compose`).
- * Does NOT send or auto-forward emails.
+ * Saves approved draft in user's Gmail Drafts using their own decrypted tokens.
  */
 router.post('/:id/approve', async (req, res) => {
+  const userId = req.user.id;
   const { confirmHumanApproval, overrides } = req.body;
 
   if (!confirmHumanApproval) {
@@ -110,23 +111,25 @@ router.post('/:id/approve', async (req, res) => {
   }
 
   try {
-    const result = await createGmailDraft(req.params.id, overrides || {});
+    const result = await createGmailDraft(req.params.id, userId, overrides || {});
     res.json({
       success: true,
       ...result,
-      draft: db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id)
+      draft: db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId)
     });
   } catch (err) {
     console.error('[Draft Approval Error]', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    const status = err.statusCode || 500;
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
 /**
  * POST /api/drafts/:id/send
- * Alias for approve with backward compatibility, enforcing NO SEND rule
+ * Alias for approve with backward compatibility
  */
 router.post('/:id/send', async (req, res) => {
+  const userId = req.user.id;
   const { confirmHumanApproval, overrides } = req.body;
 
   if (!confirmHumanApproval) {
@@ -137,31 +140,38 @@ router.post('/:id/send', async (req, res) => {
   }
 
   try {
-    const result = await createGmailDraft(req.params.id, overrides || {});
+    const result = await createGmailDraft(req.params.id, userId, overrides || {});
     res.json({
       success: true,
       dispatched: 'SAVED_AS_GMAIL_DRAFT',
       message: 'Draft authorized by user and successfully created in Gmail Drafts. (Zero auto-send policy enforced).',
       ...result,
-      draft: db.prepare('SELECT * FROM drafts WHERE id = ?').get(req.params.id)
+      draft: db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId)
     });
   } catch (err) {
     console.error('[Draft Send/Approve Error]', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    const status = err.statusCode || 500;
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
 /**
  * POST /api/drafts/:id/reject
- * Marks draft as rejected
+ * Marks draft as rejected strictly owned by req.user.id
  */
 router.post('/:id/reject', (req, res) => {
   try {
+    const userId = req.user.id;
+    const existing = db.prepare('SELECT id FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+
     db.prepare(`
       UPDATE drafts 
       SET status = 'REJECTED' 
-      WHERE id = ?
-    `).run(req.params.id);
+      WHERE id = ? AND user_id = ?
+    `).run(req.params.id, userId);
 
     res.json({ success: true, message: 'Draft rejected and archived.' });
   } catch (err) {
@@ -171,11 +181,17 @@ router.post('/:id/reject', (req, res) => {
 
 /**
  * DELETE /api/drafts/:id
- * Deletes a draft
+ * Deletes a draft strictly owned by req.user.id
  */
 router.delete('/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM drafts WHERE id = ?').run(req.params.id);
+    const userId = req.user.id;
+    const existing = db.prepare('SELECT id FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+
+    db.prepare('DELETE FROM drafts WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     res.json({ success: true, message: 'Draft deleted.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

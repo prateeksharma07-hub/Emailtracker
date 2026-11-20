@@ -1,17 +1,22 @@
 import express from 'express';
 import { db } from '../db/database.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+router.use(requireAuth);
+
 /**
  * GET /api/logs
- * Returns audit and security activity logs
+ * Returns audit and security activity logs strictly for the authenticated user
  */
 router.get('/', (req, res) => {
   try {
+    const userId = req.user.id;
     const { severity, event_type, limit = 50 } = req.query;
-    let sql = 'SELECT * FROM activity_logs WHERE 1=1';
-    const params = [];
+
+    let sql = 'SELECT * FROM activity_logs WHERE user_id = ?';
+    const params = [userId];
 
     if (severity) {
       sql += ' AND severity = ?';
