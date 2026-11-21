@@ -159,3 +159,45 @@ CREATE TABLE IF NOT EXISTS draft_checks (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
 );
+
+-- 12. Sender Trust Memory Profiles Table
+CREATE TABLE IF NOT EXISTS sender_profiles (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  sender_email TEXT NOT NULL,
+  sender_domain TEXT NOT NULL,
+  display_names_json TEXT DEFAULT '[]',
+  first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  received_count INTEGER DEFAULT 0,
+  sent_to_count INTEGER DEFAULT 0,
+  last_sent_at DATETIME,
+  trust_state TEXT DEFAULT 'unknown',        -- 'unknown' | 'trusted' | 'blocked'
+  user_set INTEGER DEFAULT 0,               -- 1 if user manually configured trust_state
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(user_id, sender_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sender_profiles_user_email ON sender_profiles(user_id, sender_email);
+CREATE INDEX IF NOT EXISTS idx_sender_profiles_user_domain ON sender_profiles(user_id, sender_domain);
+CREATE INDEX IF NOT EXISTS idx_sender_profiles_trust ON sender_profiles(trust_state);
+
+-- 13. Email Headers Metadata (SPF, DKIM, DMARC Authentication)
+CREATE TABLE IF NOT EXISTS email_headers_meta (
+  id TEXT PRIMARY KEY,
+  email_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  from_addr TEXT NOT NULL,
+  from_name TEXT,
+  reply_to TEXT,
+  spf TEXT DEFAULT 'unknown',                -- 'pass' | 'fail' | 'none' | 'unknown'
+  dkim TEXT DEFAULT 'unknown',               -- 'pass' | 'fail' | 'none' | 'unknown'
+  dmarc TEXT DEFAULT 'unknown',              -- 'pass' | 'fail' | 'none' | 'unknown'
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
+  UNIQUE(user_id, email_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_headers_meta_user_email ON email_headers_meta(user_id, email_id);
