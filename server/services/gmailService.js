@@ -433,6 +433,15 @@ export async function syncGmailInbox(userId, options = {}) {
   }
 }
 
+// Injectable draft creator for deterministic test suites (Rule 5: Zero external Gmail calls in tests)
+let customDraftSender = null;
+export function setGmailDraftSender(fn) {
+  customDraftSender = fn;
+}
+export function resetGmailDraftSender() {
+  customDraftSender = null;
+}
+
 /**
  * Creates an authorized draft in user's Gmail Drafts folder (using minimum permissions `gmail.compose`).
  * STRICT PRIVACY REQUIREMENT:
@@ -453,11 +462,32 @@ export async function createGmailDraft(draftId, userId, overrides = {}) {
     throw err;
   }
 
-  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
-
   const to = overrides.to_address || draft.to_address;
   const subject = overrides.subject || draft.subject;
   const body = overrides.reply_body || draft.reply_body;
+
+  // Mock test bypass if custom sender is registered
+  if (customDraftSender) {
+    const mockRes = await customDraftSender(draftId, userId, overrides);
+    db.prepare(`
+      UPDATE drafts 
+      SET status = 'APPROVED', 
+          approved_at = CURRENT_TIMESTAMP,
+          to_address = ?,
+          subject = ?,
+          reply_body = ?
+      WHERE id = ? AND user_id = ?
+    `).run(to, subject, body, draftId, userId);
+
+    return {
+      success: true,
+      mode: 'MOCK',
+      gmailDraftId: mockRes?.gmailDraftId || 'mock_draft_' + Date.now(),
+      message: 'Draft authorized and mocked for testing.'
+    };
+  }
+
+  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
 
   const authData = await getAuthenticatedClientForUser(userId);
   const { oauth2Client, user } = authData;

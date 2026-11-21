@@ -203,19 +203,20 @@ router.post('/approve/:draftId', autopilotLimiter, async (req, res) => {
   try {
     const userId = req.user.id;
     const draftId = req.params.draftId;
-    const { confirmHumanApproval, editedBody, csrfToken } = req.body;
+    const { confirmHumanApproval, editedBody, csrfToken, acknowledged } = req.body;
 
     const result = await approveAutopilotDraft(draftId, userId, {
       confirmHumanApproval,
       editedBody,
-      csrfToken
+      csrfToken,
+      acknowledged: Boolean(acknowledged)
     });
 
     res.json(result);
   } catch (err) {
     console.error('[Autopilot Approve Error]', err.message);
     const status = err.statusCode || 500;
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, error: err.message, regretCheck: err.regretCheck });
   }
 });
 

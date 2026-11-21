@@ -2,6 +2,7 @@ import { db } from '../db/database.js';
 import { chatCompletion } from './llm/client.js';
 import { validateAiOutput } from './shield/outputValidator.js';
 import { createGmailDraft } from './gmailService.js';
+import { evaluateDraft, acknowledgeDraftCheck, isRegretShieldEnabled } from './regret/regretShield.js';
 
 /**
  * Autopilot Service (MailMind AI — Phase 2)
@@ -394,7 +395,7 @@ export async function prepareFollowUpDraft(email, userId) {
  * 4. Activity log recorded (body not logged)
  */
 export async function approveAutopilotDraft(draftId, userId, options = {}) {
-  const { confirmHumanApproval = false, editedBody = null, csrfToken = null } = options;
+  const { confirmHumanApproval = false, editedBody = null, csrfToken = null, acknowledged = false } = options;
 
   if (!confirmHumanApproval) {
     const err = new Error('SAFETY POLICY VIOLATION: Explicit human approval is required before saving any draft.');
@@ -427,7 +428,34 @@ export async function approveAutopilotDraft(draftId, userId, options = {}) {
 
   const finalBody = editedBody || draft.reply_body;
 
-  // 4. Output validation guard
+  // 4. Regret Shield Guard (if feature is enabled)
+  if (isRegretShieldEnabled()) {
+    const recipientContext = {
+      toAddresses: [draft.to_address],
+      fromAddress: email.sender || '',
+      senderName: email.sender_name || ''
+    };
+    const evaluation = await evaluateDraft({
+      draftId: draft.id,
+      draftText: finalBody,
+      userId,
+      recipientContext,
+      visibleContext: email.body_text || email.snippet || ''
+    });
+
+    if (evaluation.severity === 'high' && !acknowledged) {
+      const err = new Error('Draft contains high-risk elements (e.g. unfilled placeholders, sensitive data, harsh tone). Explicit acknowledgment is required to authorize.');
+      err.statusCode = 409;
+      err.regretCheck = evaluation;
+      throw err;
+    }
+
+    if (acknowledged) {
+      acknowledgeDraftCheck(draft.id, evaluation.draftHash, userId);
+    }
+  }
+
+  // 5. Output validation guard
   const validation = validateAiOutput({ summary: '', reply_drafts: [{ reply_body: finalBody }] }, email.body_text || email.snippet || '');
   if (!validation.isValid && validation.findings?.length > 0) {
     // If outputValidator flags an injected URL/phone not in original text, log warning
