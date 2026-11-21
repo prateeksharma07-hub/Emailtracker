@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from '../db/database.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { annotateTasksWithClashes, getUserTimezone } from '../services/deadlines/deadlineService.js';
 
 const router = express.Router();
 
@@ -8,7 +9,7 @@ router.use(requireAuth);
 
 /**
  * GET /api/tasks
- * Lists extracted tasks strictly for the authenticated user
+ * Lists extracted tasks strictly for the authenticated user, annotated with schedule clashes
  */
 router.get('/', (req, res) => {
   try {
@@ -31,8 +32,52 @@ router.get('/', (req, res) => {
 
     sql += ' ORDER BY t.created_at DESC';
 
-    const tasks = db.prepare(sql).all(...params);
-    res.json({ success: true, tasks });
+    const rawTasks = db.prepare(sql).all(...params);
+    const userTz = getUserTimezone(userId);
+    const tasks = annotateTasksWithClashes(rawTasks, userTz);
+
+    res.json({ success: true, tasks, timezone: userTz });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/tasks/:id/due
+ * Manually updates deadline and calendar due date (strictly owned by req.user.id)
+ */
+router.patch('/:id/due', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { due_at, due_tz, due_all_day, deadline_kind, deadline_date, deadline_text } = req.body;
+
+    const task = db.prepare('SELECT id FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found or access denied.' });
+    }
+
+    db.prepare(`
+      UPDATE tasks 
+      SET due_at = ?,
+          due_tz = COALESCE(?, due_tz),
+          due_all_day = COALESCE(?, due_all_day),
+          deadline_kind = COALESCE(?, deadline_kind),
+          deadline_date = COALESCE(?, deadline_date),
+          deadline_text = COALESCE(?, deadline_text)
+      WHERE id = ? AND user_id = ?
+    `).run(
+      due_at !== undefined ? due_at : null,
+      due_tz || null,
+      due_all_day !== undefined ? (due_all_day ? 1 : 0) : null,
+      deadline_kind || null,
+      deadline_date || null,
+      deadline_text || null,
+      req.params.id,
+      userId
+    );
+
+    const updated = db.prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    res.json({ success: true, task: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -6,6 +6,7 @@ import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from '.
 import { runShieldPipeline } from './shield/shieldPipeline.js';
 import { validateAiOutput } from './shield/outputValidator.js';
 import { ingestIncomingEmailHeaders } from './senderMemory/senderIngestion.js';
+import { extractDeadlinesForEmail, isCalendarExportEnabled } from './deadlines/deadlineService.js';
 
 // Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
 class ConcurrencyLimiter {
@@ -371,19 +372,58 @@ export async function syncGmailInbox(userId, options = {}) {
       }
 
       // 5. Save Extracted Action Items under user_id
-      if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
+      let finalTasks = [];
+      if (isCalendarExportEnabled() && shieldResult.verdict !== 'DETAINED') {
+        try {
+          const extracted = await extractDeadlinesForEmail({
+            email: parsedEmail,
+            visibleText: shieldResult.visibleText,
+            shieldVerdict: shieldResult.verdict,
+            userId
+          });
+          if (Array.isArray(extracted) && extracted.length > 0) {
+            finalTasks = extracted;
+          }
+        } catch (deadlineErr) {
+          console.warn('[Deadline Extraction Warning]', deadlineErr.message);
+        }
+      }
+
+      if (finalTasks.length === 0 && Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
+        finalTasks = analysis.tasks.map(t => ({
+          task_title: t.task_title,
+          deadline_date: t.deadline_date || null,
+          deadline_text: t.deadline_text || null,
+          due_at: null,
+          due_tz: null,
+          due_all_day: 0,
+          due_confidence: 'medium',
+          due_source_flagged: shieldResult.verdict === 'SUSPICIOUS' ? 1 : 0,
+          deadline_kind: 'general'
+        }));
+      }
+
+      if (finalTasks.length > 0) {
         const insertTask = db.prepare(`
-          INSERT INTO tasks (id, user_id, email_id, task_title, deadline_date, deadline_text)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO tasks (
+            id, user_id, email_id, task_title, deadline_date, deadline_text,
+            due_at, due_tz, due_all_day, due_confidence, due_source_flagged, deadline_kind
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        for (const t of analysis.tasks) {
+        for (const t of finalTasks) {
           insertTask.run(
             'task_' + Math.random().toString(36).slice(2, 10),
             userId,
             parsedEmail.id,
             t.task_title,
             t.deadline_date || null,
-            t.deadline_text || null
+            t.deadline_text || null,
+            t.due_at || null,
+            t.due_tz || null,
+            t.due_all_day ? 1 : 0,
+            t.due_confidence || 'medium',
+            t.due_source_flagged ? 1 : 0,
+            t.deadline_kind || 'general'
           );
         }
       }
