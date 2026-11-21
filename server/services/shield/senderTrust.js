@@ -232,7 +232,7 @@ export function evaluateSenderTrust(email = {}, injectedContext = null) {
     const parsedSender = parseSenderAddress(rawSender);
     const senderEmail = parsedSender.email;
     const senderDomain = parsedSender.domain;
-    const senderName = email.sender_name || parsedSender.name || '';
+    const senderName = email.sender_name || email.senderName || parsedSender.name || '';
 
     // Retrieve context from database if not explicitly injected
     let profile = null;
@@ -240,11 +240,12 @@ export function evaluateSenderTrust(email = {}, injectedContext = null) {
     let establishedContacts = [];
     let establishedDomains = [];
 
-    if (injectedContext) {
-      profile = injectedContext.profile || null;
-      headersMeta = injectedContext.headersMeta || null;
-      establishedContacts = injectedContext.establishedContacts || [];
-      establishedDomains = injectedContext.establishedDomains || [];
+    const ctx = injectedContext || email.senderContext || null;
+    if (ctx) {
+      profile = ctx.profile || null;
+      headersMeta = ctx.headersMeta || null;
+      establishedContacts = ctx.establishedContacts || [];
+      establishedDomains = ctx.establishedDomains || [];
     } else if (userId) {
       try {
         profile = db.prepare('SELECT * FROM sender_profiles WHERE user_id = ? AND sender_email = ?').get(userId, senderEmail);
@@ -377,8 +378,9 @@ export function evaluateSenderTrust(email = {}, injectedContext = null) {
     }
 
     // 6. Reply-To Mismatch Check
-    if (headersMeta?.reply_to && headersMeta.from_addr) {
-      const fromParsed = parseSenderAddress(headersMeta.from_addr);
+    const fromRaw = headersMeta?.from_addr || rawSender;
+    if (headersMeta?.reply_to && fromRaw) {
+      const fromParsed = parseSenderAddress(fromRaw);
       const replyParsed = parseSenderAddress(headersMeta.reply_to);
       if (fromParsed.domain && replyParsed.domain && fromParsed.domain !== replyParsed.domain) {
         findings.push({
@@ -386,11 +388,12 @@ export function evaluateSenderTrust(email = {}, injectedContext = null) {
           reason: `Reply-To destination domain "@${replyParsed.domain}" diverges from sender domain "@${fromParsed.domain}".`
         });
         layerScore += config.weights.reply_to_mismatch || 15;
+        hasAnomaly = true;
       }
     }
 
     // 7. Risky Ask Check
-    const fullText = `${email.subject || ''}\n${email.body_text || email.snippet || ''}`;
+    const fullText = `${email.subject || ''}\n${email.body_text || email.bodyText || email.snippet || ''}`;
     const riskyAsk = scanRiskyAsk(fullText);
 
     if (riskyAsk.isRisky) {

@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { SYNTHETIC_EMAILS } from './fixtures/syntheticEmails.js';
+import { SENDER_TRUST_FIXTURES } from './fixtures/senderTrustFixtures.js';
 import { runShieldPipeline } from '../../services/shield/shieldPipeline.js';
 import { inspectHtmlContent } from '../../services/shield/htmlInspector.js';
 import { scanOverridePatterns } from '../../services/shield/overridePatterns.js';
@@ -78,11 +79,13 @@ async function runStandardBenchmark(total, totalMalicious, totalBenign) {
     const l1 = result.layers.find(l => l.name === 'HTML & Structure Inspector');
     const l2 = result.layers.find(l => l.name === 'Override Pattern Engine');
     const l3 = result.layers.find(l => l.name === 'Groq Prompt Guard 2');
+    const l4 = result.layers.find(l => l.name?.includes('Sender') || l.label);
 
     if (isMalicious) {
       if (l1 && l1.score > 0) layerDetections.layer1++;
       if (l2 && l2.score > 0) layerDetections.layer2++;
       if (l3 && l3.score > 0) layerDetections.layer3++;
+      if (l4 && l4.score > 0) layerDetections.layer4 = (layerDetections.layer4 || 0) + 1;
     }
 
     let outcome;
@@ -156,6 +159,69 @@ async function runStandardBenchmark(total, totalMalicious, totalBenign) {
       Catches: `${layerDetections.layer3} / ${totalMalicious}`,
       Rate: `${((layerDetections.layer3 / totalMalicious) * 100).toFixed(1)}%`
     }
+  ]);
+
+  // ==========================================
+  // SENDER TRUST MEMORY EVALUATION SUITE
+  // ==========================================
+  console.log('\n================================================================');
+  console.log('🛡️  SENDER TRUST MEMORY & IDENTITY SPOOFING SUITE (20 FIXTURES)');
+  console.log('================================================================\n');
+
+  let stTp = 0;
+  let stFp = 0;
+  let stTn = 0;
+  let stFn = 0;
+  const stResults = [];
+
+  for (const sample of SENDER_TRUST_FIXTURES) {
+    const isMalicious = sample.expectedVerdict === 'DETAINED';
+    const result = await runShieldPipeline(sample);
+    const isFlagged = result.verdict === 'DETAINED' || result.verdict === 'SUSPICIOUS';
+
+    let outcome;
+    if (isMalicious && isFlagged) {
+      stTp++;
+      outcome = '✅ TP (Blocked)';
+    } else if (isMalicious && !isFlagged) {
+      stFn++;
+      outcome = '❌ FN (Missed)';
+    } else if (!isMalicious && !isFlagged) {
+      stTn++;
+      outcome = '✅ TN (Cleared)';
+    } else {
+      stFp++;
+      outcome = '⚠️ FP (False Alarm)';
+    }
+
+    stResults.push({
+      ID: sample.id,
+      Type: isMalicious ? 'MALICIOUS' : 'BENIGN',
+      Verdict: result.verdict,
+      Score: `${result.threatScore}/100`,
+      Outcome: outcome,
+      Vector: sample.vector.slice(0, 40)
+    });
+  }
+
+  console.table(stResults);
+
+  const stTotal = SENDER_TRUST_FIXTURES.length;
+  const stTotalMalicious = SENDER_TRUST_FIXTURES.filter(e => e.expectedVerdict === 'DETAINED').length;
+  const stTotalBenign = SENDER_TRUST_FIXTURES.filter(e => e.expectedVerdict === 'CLEARED').length;
+  const stRecall = ((stTp / stTotalMalicious) * 100).toFixed(1);
+  const stFpr = ((stFp / stTotalBenign) * 100).toFixed(1);
+  const stAccuracy = (((stTp + stTn) / stTotal) * 100).toFixed(1);
+
+  console.log('\n📊 SENDER TRUST PERFORMANCE METRICS:');
+  console.table([
+    { Metric: 'Total Sender-Trust Fixtures', Value: stTotal },
+    { Metric: 'Blocked Vectors (True Positives)', Value: `${stTp} / ${stTotalMalicious}` },
+    { Metric: 'Cleared Benign (True Negatives)', Value: `${stTn} / ${stTotalBenign}` },
+    { Metric: 'False Alarms (False Positives)', Value: stFp },
+    { Metric: 'Detection Rate (Recall)', Value: `${stRecall}%` },
+    { Metric: 'False Positive Rate (FPR)', Value: `${stFpr}%` },
+    { Metric: 'Overall Accuracy', Value: `${stAccuracy}%` }
   ]);
 }
 

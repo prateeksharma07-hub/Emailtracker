@@ -185,7 +185,7 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 
 ### 📊 3. Automated Test Infrastructure & Ablation Analytics
 - **Deterministic Offline Testing**: Tests use injectable provider interfaces (`services/llm/client.js`), ensuring deterministic evaluation without external API rate limits or network dependencies.
-- **37 Comprehensive Automated Tests**:
+- **70 Comprehensive Automated Tests (8 Suites)**:
   ```bash
   npm test --prefix server
   ```
@@ -193,9 +193,13 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
   - `autopilot.test.js`: 9/9 tests (needs-reply detection, Hinglish matching, 3 tones, DETAINED block 403, IDOR 404, follow-up detection).
   - `attackLab.test.js`: 5/5 tests (presets, canary detection HIJACKED vs HELD, zero real-inbox leakage, lab_runs isolation).
   - `regretShield.test.js`: 13/13 tests (Aadhaar Verhoeff precision, bank account context, placeholder precision, domain mismatch, tone parsing fail-safes, ungrounded rewrite stripping, draft hashing & caching, 409 approval gate, 403 detained gate, IDOR 404).
+  - `senderIngestion.test.js`: 5/5 tests (authserv-id verification, RFC 2822 parser, profile upserts, multi-user isolation, feature flag).
+  - `sentSync.test.js`: 4/4 tests (quoted comma parsing, metadata header-only sync, 429 backoff retry, feature flag).
+  - `senderTrust.test.js`: 11/11 tests (homoglyphs & lookalikes, display-name spoofing, risky ask scanner, 7 strict policy invariants, feature flag).
+  - `senderRoutes.test.js`: 13/13 tests (401 auth, multi-user isolation, filter & search, IDOR prevention, PATCH updates, bulk forget, profile rebuild, GDPR erasure, feature flag).
 - **Synthetic Benchmark Suite (`npm run shield:bench`)**:
-  - Evaluates 100 synthetic test fixtures (50 adversarial prompt-injection attack vectors, 50 legitimate benign corporate/newsletter emails).
-  - *Benchmark Scope Note*: This 100-sample suite measures recall and false-positive rates on known synthetic vectors within an internal test harness. Production security operates as a best-effort defense-in-depth architecture; no automated system can guarantee 100% impenetrability against novel zero-day prompts, which is why explicit human approval remains mandatory.
+  - Evaluates 100 baseline synthetic test fixtures (50 adversarial prompt-injection attack vectors, 50 legitimate benign corporate/newsletter emails) + 20 dedicated Sender Trust Memory fixtures (10 spoof/auth/wire vectors, 10 legitimate contacts).
+  - *Benchmark Scope Note*: This benchmark measures recall and false-positive rates on synthetic vectors within an offline test harness. Production security operates as a best-effort defense-in-depth architecture; no automated system can guarantee 100% impenetrability against novel zero-day prompts, which is why explicit human approval remains mandatory.
 - **Live Groq Smoke Test (`npm run regret:smoke`)**:
   - Tests 5 live draft scenarios (Polite, Harsh, Passive-Aggressive, Commitment, Hinglish) directly against Groq LPU with zero secrets or text logging.
 
@@ -218,6 +222,29 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 - **Feature Flag Controlled**:
   - Gated behind `FEATURE_REGRET_SHIELD` (default: `true`). Setting to `false` completely bypasses the gate, reverting behavior seamlessly.
 
+### 🛡️ 5. Sender Trust Memory: Relationship & Impersonation Defense (Layer 4)
+- **Objective**: Tracks historical sender relationships, parses inbound Google authentication results, and detects CEO/executive display-name impersonation and lookalike domains.
+- **Strict Policy Invariants**:
+  1. *Risk Increase Only*: Trusted status never decreases risk or bypasses prompt injection defense. A trusted contact sending a prompt injection is strictly `DETAINED`.
+  2. *Anomaly Ceiling*: A sender anomaly alone (lookalike, first-time, SPF fail) is capped at `SUSPICIOUS`, never `DETAINED`. Only an anomaly paired with a risky ask (urgent wire, bank modification, gift card) or a user block escalates to `DETAINED`.
+  3. *Fail-Safe Isolation*: If Layer 4 encounters any error, it marks itself `unavailable` and the rest of the pipeline executes without crashing.
+  4. *Benign Newcomer Protection*: Legitimate first-time senders remain `CLEARED` if there is no anomaly or prompt injection.
+  5. *Baseline Preservation*: Old Phase 1 fixtures preserve identical baseline verdicts.
+- **Signals Evaluated**:
+  - `first_time_sender`: Informative flag when no prior correspondence exists.
+  - `established`: Contact verified by sent mail history (`sent_to_count > 0`), manual trust, or 3+ emails over 14+ days.
+  - `display_name_spoof`: External email mimicking the display name of a known trusted contact.
+  - `lookalike_domain`: Homoglyph normalization (`1`->`l`, `0`->`o`, `rn`->`m`, `vv`->`w`) and Levenshtein distance $\le 2$ against established domains, excluding common free-mail providers.
+  - `auth_failure`: Inbound SPF, DKIM, and DMARC failures parsed strictly from Google MTA headers (`authserv-id: mx.google.com`).
+  - `reply_to_mismatch`: Reply-To domain pointing away from sender domain to untrusted destination.
+  - `risky_ask`: Scans for urgent wire transfers, banking detail modifications, gift cards, credential harvesting, or Hinglish urgent payment requests.
+- **Privacy & Ingestion Architecture**:
+  - *Sent-Mail Sync*: Fetches only `format=metadata` (`To`, `Cc`, `Date`), never reads sent email bodies. Default limit: 300 messages. Handles 429 rate limits with exponential backoff.
+  - *Full User Control*: Dedicated `/api/senders` API and Sender Memory UI to mark contacts as trusted, blocked, or unknown, delete individual profiles, rebuild memory, or trigger bulk erasure ("Forget all sender memory").
+  - *GDPR Erasure*: "Disconnect & Delete My Data" automatically wipes all user records from `sender_profiles` and `email_headers_meta`.
+- **Feature Flag Controlled**:
+  - Gated behind `FEATURE_SENDER_TRUST` (default: `true`). Disabling shuts down Layer 4, sent sync, and sender routes.
+
 ---
 
 ## 🔒 Security & Privacy Architecture (Best-Effort Layered Defense)
@@ -226,7 +253,8 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 |---|---|
 | **Multi-User Data Isolation** | Enforced via `WHERE user_id = req.user.id` on all queries and inserts. |
 | **Token Encryption** | AES-256-GCM with dynamic IV per token and authentication tags. |
-| **AI Email Firewall** | Multi-layer screening (HTML/CSS tricks, Unicode tags, Groq Prompt Guard 2). |
+| **AI Email Firewall** | Multi-layer screening (HTML/CSS tricks, Unicode tags, Groq Prompt Guard 2, Sender Trust Memory). |
+| **Sender Trust Memory** | Homoglyph lookalike defense, display name spoofing detection, Google MTA auth inspection, and sent metadata sync. |
 | **Regret Shield** | Pre-approval check for attachments, placeholders, PAN/Aadhaar, recipient risks, tone risks, and explicit 409 acknowledgment. |
 | **Zero Raw HTML Injection** | Plaintext React tokenization; no `dangerouslySetInnerHTML` for emails. |
 | **Zero Auto-Send** | Only creates drafts upon explicit human approval. |
