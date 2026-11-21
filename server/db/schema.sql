@@ -76,16 +76,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
 );
 
--- 10. Defensive Attack Lab Runs (Sandbox Simulations)
-CREATE TABLE IF NOT EXISTS lab_runs (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  scenario TEXT NOT NULL,
-  results_json TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 -- 5. AI-Generated Reply Drafts (Human-in-the-Loop Approval Required, Per-User)
 CREATE TABLE IF NOT EXISTS drafts (
   id TEXT PRIMARY KEY,
@@ -103,16 +93,6 @@ CREATE TABLE IF NOT EXISTS drafts (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-);
-
--- 10. Defensive Attack Lab Runs (Sandbox Simulations)
-CREATE TABLE IF NOT EXISTS lab_runs (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  scenario TEXT NOT NULL,
-  results_json TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- 6. Safety Audit & Operational Activity Logs (Per-User Isolated)
@@ -164,4 +144,18 @@ CREATE TABLE IF NOT EXISTS lab_runs (
   results_json TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 11. Regret Shield Draft Quality & Tone Checks Table
+CREATE TABLE IF NOT EXISTS draft_checks (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  draft_id TEXT NOT NULL,
+  draft_hash TEXT NOT NULL,
+  severity TEXT NOT NULL,                    -- 'pass', 'review', 'high'
+  result_json TEXT NOT NULL,                 -- JSON: items, commitments, softer_rewrite (excerpts only, no full body duplicate)
+  acknowledged_at DATETIME,                  -- Timestamp when user acknowledged HIGH severity
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
 );

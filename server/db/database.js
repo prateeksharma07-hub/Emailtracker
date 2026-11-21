@@ -193,6 +193,22 @@ function runMigrations() {
     );
   `);
 
+  // 9. Ensure `draft_checks` table exists (Regret Shield)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS draft_checks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      draft_id TEXT NOT NULL,
+      draft_hash TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      acknowledged_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
+    );
+  `);
+
   // 9. Migrate legacy `accounts` data into `users` if present
   if (tableExists('accounts')) {
     try {
@@ -272,6 +288,10 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_shield_email_id ON shield_scans(email_id);
     CREATE INDEX IF NOT EXISTS idx_shield_verdict ON shield_scans(verdict);
     CREATE INDEX IF NOT EXISTS idx_emails_shield_verdict ON emails(shield_verdict);
+
+    CREATE INDEX IF NOT EXISTS idx_draft_checks_user ON draft_checks(user_id);
+    CREATE INDEX IF NOT EXISTS idx_draft_checks_draft ON draft_checks(draft_id);
+    CREATE INDEX IF NOT EXISTS idx_draft_checks_hash ON draft_checks(draft_hash);
   `);
 
   console.log('[Database] Migrations verified successfully.');
