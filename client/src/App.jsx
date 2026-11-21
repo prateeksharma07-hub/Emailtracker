@@ -47,6 +47,7 @@ import AutopilotView from './components/autopilot/AutopilotView';
 import AttackLabView from './components/lab/AttackLabView';
 import AnalyticsView from './components/analytics/AnalyticsView';
 import ActivityLogsView from './components/logs/ActivityLogsView';
+import SenderMemoryView from './components/senders/SenderMemoryView';
 import SettingsModal from './components/settings/SettingsModal';
 
 export default function App() {
@@ -263,6 +264,7 @@ export default function App() {
       case 'tasks': return 'Action Items & Deadlines';
       case 'drafts': return 'AI Response Studio';
       case 'checkpoint': return 'AI Firewall Checkpoint (X-Ray)';
+      case 'senders': return 'Sender Trust Memory';
       case 'lab': return 'Adversarial Attack & Simulation Lab';
       case 'analytics': return 'Intelligence & Metrics';
       case 'logs': return 'Security & Audit Logs';
@@ -277,6 +279,7 @@ export default function App() {
       case 'tasks': return 'Actionable deadlines extracted by Groq AI from incoming emails';
       case 'drafts': return 'Prepared response drafts awaiting human authorization';
       case 'checkpoint': return 'Real-time steganographic payload inspection and prompt injection defense terminal';
+      case 'senders': return 'Verified sender relationships, SPF/DKIM/DMARC telemetry, and lookalike domain detection';
       case 'lab': return 'Interactive prompt-injection simulation comparing Naive AI vs MailMind Shield';
       case 'analytics': return 'Comprehensive email volume, priority matrix, and AI efficiency';
       case 'logs': return 'Zero-leak data sanitization and local audit trail';
@@ -429,6 +432,25 @@ export default function App() {
                 activeTab === 'checkpoint' ? 'bg-white/20' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
               }`}>
                 Shield
+              </span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('senders'); setSelectedEmail(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'senders'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <UserCheck className="w-4 h-4 text-emerald-400" />
+                <span>Sender Memory</span>
+              </div>
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                activeTab === 'senders' ? 'bg-white/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              }`}>
+                Trust
               </span>
             </button>
 
@@ -709,6 +731,11 @@ export default function App() {
               initialEmailId={checkpointEmailId}
               onSelectEmailById={handleSelectEmailById}
             />
+          )}
+
+          {/* SCREEN: SENDER TRUST MEMORY */}
+          {activeTab === 'senders' && (
+            <SenderMemoryView />
           )}
 
           {/* SCREEN: ATTACK LAB SIMULATION */}
