@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-11-21T04:43:54.302Z",
+  "totalSamples": 100,
+  "totalMalicious": 50,
+  "totalBenign": 50,
+  "stages": [
+    {
+      "stage": "Layer 1 Only (HTML/CSS Structural)",
+      "recall": "80.0%",
+      "fpr": "10.0%",
+      "accuracy": "85.0%",
+      "tp": 40,
+      "fn": 10,
+      "fp": 5,
+      "tn": 45
+    },
+    {
+      "stage": "Layer 1 + Layer 2 (Structural + Override Patterns)",
+      "recall": "92.0%",
+      "fpr": "10.0%",
+      "accuracy": "91.0%",
+      "tp": 46,
+      "fn": 4,
+      "fp": 5,
+      "tn": 45
+    },
+    {
+      "stage": "Layer 1 + Layer 2 + Layer 3 (+ Prompt Guard 2)",
+      "recall": "100.0%",
+      "fpr": "0.0%",
+      "accuracy": "100.0%",
+      "tp": 50,
+      "fn": 0,
+      "fp": 0,
+      "tn": 50
+    },
+    {
+      "stage": "Full Multi-Layer Defense + Output Validator",
+      "recall": "100.0%",
+      "fpr": "0.0%",
+      "accuracy": "100.0%",
+      "tp": 50,
+      "fn": 0,
+      "fp": 0,
+      "tn": 50
+    }
+  ],
+  "disclaimer": "Best-effort layered defense. No system guarantees 100% security against novel zero-day prompts."
+}

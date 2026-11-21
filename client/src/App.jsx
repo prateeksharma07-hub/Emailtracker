@@ -31,7 +31,10 @@ import {
   LogOut,
   HelpCircle,
   Check,
-  ChevronRight
+  ChevronRight,
+  Fingerprint,
+  FlaskConical,
+  Bot
 } from 'lucide-react';
 
 import EmailList from './components/inbox/EmailList';
@@ -39,6 +42,9 @@ import EmailDetail from './components/inbox/EmailDetail';
 import HumanApprovalModal from './components/drafts/HumanApprovalModal';
 import DraftsView from './components/drafts/DraftsView';
 import TasksView from './components/tasks/TasksView';
+import CheckpointView from './components/checkpoint/CheckpointView';
+import AutopilotView from './components/autopilot/AutopilotView';
+import AttackLabView from './components/lab/AttackLabView';
 import AnalyticsView from './components/analytics/AnalyticsView';
 import ActivityLogsView from './components/logs/ActivityLogsView';
 import SettingsModal from './components/settings/SettingsModal';
@@ -77,6 +83,7 @@ export default function App() {
   const [approvalDraft, setApprovalDraft] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [checkpointEmailId, setCheckpointEmailId] = useState(null);
 
   // Fetch Emails with active filters & pagination strictly for authenticated user
   const fetchEmails = useCallback(async () => {
@@ -165,6 +172,12 @@ export default function App() {
     handleSelectEmail({ id: emailId });
   };
 
+  const handleInspectCheckpoint = (emailId) => {
+    setCheckpointEmailId(emailId);
+    setActiveTab('checkpoint');
+    setSelectedEmail(null);
+  };
+
   const handleDeleteEmail = async (emailId) => {
     try {
       await apiFetch(`/api/emails/${emailId}`, { method: 'DELETE' });
@@ -246,8 +259,11 @@ export default function App() {
   const getScreenTitle = () => {
     switch (activeTab) {
       case 'inbox': return 'Smart Inbox';
+      case 'autopilot': return 'Autopilot & Reply Intelligence';
       case 'tasks': return 'Action Items & Deadlines';
       case 'drafts': return 'AI Response Studio';
+      case 'checkpoint': return 'AI Firewall Checkpoint (X-Ray)';
+      case 'lab': return 'Adversarial Attack & Simulation Lab';
       case 'analytics': return 'Intelligence & Metrics';
       case 'logs': return 'Security & Audit Logs';
       default: return 'MailMind AI';
@@ -257,8 +273,11 @@ export default function App() {
   const getScreenSubtitle = () => {
     switch (activeTab) {
       case 'inbox': return 'Live categorized correspondence with automatic AI summaries';
+      case 'autopilot': return 'Needs-reply triage, 3-tone adaptive response drafting, and follow-up tracking';
       case 'tasks': return 'Actionable deadlines extracted by Groq AI from incoming emails';
       case 'drafts': return 'Prepared response drafts awaiting human authorization';
+      case 'checkpoint': return 'Real-time steganographic payload inspection and prompt injection defense terminal';
+      case 'lab': return 'Interactive prompt-injection simulation comparing Naive AI vs MailMind Shield';
       case 'analytics': return 'Comprehensive email volume, priority matrix, and AI efficiency';
       case 'logs': return 'Zero-leak data sanitization and local audit trail';
       default: return '';
@@ -340,6 +359,25 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => { setActiveTab('autopilot'); setSelectedEmail(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'autopilot'
+                  ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Bot className="w-4 h-4 text-violet-400" />
+                <span>Autopilot Engine</span>
+              </div>
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                activeTab === 'autopilot' ? 'bg-white/20' : 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
+              }`}>
+                Auto
+              </span>
+            </button>
+
+            <button
               onClick={() => { setActiveTab('tasks'); setSelectedEmail(null); }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'tasks'
@@ -372,6 +410,44 @@ export default function App() {
                 activeTab === 'drafts' ? 'bg-white/20' : 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
               }`}>
                 {analyticsData?.metrics?.pendingDrafts || 0}
+              </span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('checkpoint'); setSelectedEmail(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'checkpoint'
+                  ? 'bg-gradient-to-r from-cyan-600 to-violet-600 text-white shadow-md shadow-cyan-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Fingerprint className="w-4 h-4 text-cyan-400" />
+                <span>Checkpoint (X-Ray)</span>
+              </div>
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                activeTab === 'checkpoint' ? 'bg-white/20' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+              }`}>
+                Shield
+              </span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('lab'); setSelectedEmail(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'lab'
+                  ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-md shadow-amber-500/25'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <FlaskConical className="w-4 h-4 text-amber-400" />
+                <span>Attack Lab</span>
+              </div>
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                activeTab === 'lab' ? 'bg-white/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+              }`}>
+                Lab
               </span>
             </button>
 
@@ -524,8 +600,11 @@ export default function App() {
         <div className="md:hidden flex items-center space-x-1 p-2 bg-slate-100 dark:bg-white/5 overflow-x-auto border-b border-slate-200 dark:border-white/10">
           {[
             { id: 'inbox', label: 'Inbox' },
+            { id: 'autopilot', label: 'Autopilot' },
             { id: 'tasks', label: 'Tasks' },
             { id: 'drafts', label: 'Drafts' },
+            { id: 'checkpoint', label: 'Firewall' },
+            { id: 'lab', label: 'Attack Lab' },
             { id: 'analytics', label: 'Analytics' },
             { id: 'logs', label: 'Audit' }
           ].map(t => (
@@ -580,12 +659,14 @@ export default function App() {
                 onDelete={handleDeleteEmail}
                 onToggleTask={handleToggleTask}
                 onRefreshEmail={handleSelectEmailById}
+                onInspectCheckpoint={handleInspectCheckpoint}
               />
             ) : (
               <EmailList
                 emails={emails}
                 selectedEmailId={selectedEmail?.id}
                 onSelectEmail={handleSelectEmail}
+                onInspectCheckpoint={handleInspectCheckpoint}
                 searchQuery={searchQuery}
                 setSearchQuery={handleSearchChange}
                 priorityFilter={priorityFilter}
@@ -604,6 +685,14 @@ export default function App() {
             )
           )}
 
+          {/* SCREEN: AUTOPILOT ENGINE */}
+          {activeTab === 'autopilot' && (
+            <AutopilotView
+              onOpenApprovalModal={(draft) => setApprovalDraft(draft)}
+              onInspectCheckpoint={handleInspectCheckpoint}
+            />
+          )}
+
           {/* SCREEN 2: TASKS & DEADLINES */}
           {activeTab === 'tasks' && (
             <TasksView onSelectEmailById={handleSelectEmailById} />
@@ -614,12 +703,25 @@ export default function App() {
             <DraftsView onOpenApprovalModal={(draft) => setApprovalDraft(draft)} />
           )}
 
-          {/* SCREEN 4: EMAIL ANALYTICS & INTELLIGENCE */}
+          {/* SCREEN 4: AI FIREWALL CHECKPOINT & X-RAY */}
+          {activeTab === 'checkpoint' && (
+            <CheckpointView
+              initialEmailId={checkpointEmailId}
+              onSelectEmailById={handleSelectEmailById}
+            />
+          )}
+
+          {/* SCREEN: ATTACK LAB SIMULATION */}
+          {activeTab === 'lab' && (
+            <AttackLabView />
+          )}
+
+          {/* SCREEN 5: EMAIL ANALYTICS & INTELLIGENCE */}
           {activeTab === 'analytics' && (
             <AnalyticsView />
           )}
 
-          {/* SCREEN 5: SECURITY & AUDIT LOGS */}
+          {/* SCREEN 6: SECURITY & AUDIT LOGS */}
           {activeTab === 'logs' && (
             <ActivityLogsView />
           )}

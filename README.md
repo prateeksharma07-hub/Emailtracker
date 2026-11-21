@@ -109,12 +109,101 @@ npm run dev
 
 ---
 
+## 🛡️ PHASE 1: "Shield + X-Ray" AI Email Firewall
+
+MailMind AI features a multi-layer defense engine designed to intercept prompt injection attacks, hidden adversarial instructions, and steganographic payloads targeting LLM email agents.
+
+### 🔬 Multi-Layer Defensive Pipeline
+1. **HTML & Structural Inspector (`htmlInspector.js` via Cheerio)**:
+   - Scans CSS text hiding techniques: `display:none`, `visibility:hidden`, `opacity <= 0.05`, `font-size <= 2px`, white-on-white text, off-screen displacement (`left/top: -9999px`), `max-height: 0px` with `overflow: hidden`, `<template>`, and HTML comments.
+   - Detects invisible Unicode steganography: zero-width spaces (`U+200B`, `U+200C`, `U+200D`, `U+2060`, `U+FEFF`), bidirectional override markers (`U+202A`–`U+202E`, `U+2066`–`U+2069`), and Unicode tag blocks (`U+E0000`–`U+E007F`).
+   - Produces separated `visibleText` (human canvas) and `aiText` (naive parser extraction).
+2. **Override Pattern Engine (`overridePatterns.js`)**:
+   - Weighted regex engine scanning for instruction-override syntax across English, Hindi, and Romanized Hinglish (e.g. *"ignore previous instructions"*, *"disregard system prompt"*, *"pehle ki instructions ignore karo"*, *"upar ki baatein bhool jao"*, *"approve wire transfer"*).
+3. **Groq Prompt Guard 2 Scanner (`promptGuard.js`)**:
+   - Classifies text chunks (~1400 chars) against `meta-llama/llama-prompt-guard-2-22m` on Groq with preview fail-safe fallback (`status: unavailable`) in case of rate limits.
+4. **Safe Delimitation & Output Validation (`outputValidator.js`)**:
+   - Strict `<<<UNTRUSTED_EMAIL_CONTENT>>>` demarcation instructing the LLM to treat email body as passive data.
+   - Post-generation validator verifies that AI summaries, tasks, and drafts do not hallucinate or leak ungrounded URLs, emails, phone numbers, or bank details.
+5. **Policy Engine (`shieldPipeline.js`)**:
+   - Tolerates benign marketing newsletter preheaders (e.g., "view in browser") to avoid false positives.
+   - Assigns verdicts: `CLEARED` (threat score < 25), `SUSPICIOUS` (score 25-59 or anomalous structure), and `DETAINED` (score >= 60 or hidden override injection).
+   - **Fail-Closed**: Any unhandled exception marks the email as `SUSPICIOUS`, never `CLEARED`.
+
+### 🛃 Checkpoint (X-Ray) Visual Interface
+- **Airport Customs Theme**: Dark steel interface with laser sweep, status stamps (`CLEARED`, `SUSPICIOUS`, `DETAINED`), and a 0-100 composite threat score gauge.
+- **Side-by-Side Dual Column**:
+  - Left: *"Aap Kya Dekhte Ho"* (Sanitized human canvas).
+  - Right: *"AI Kya Dekhta Hai"* (Ingestion view with hidden adversarial segments highlighted in crimson).
+- **Strict Web Security**: Zero `dangerouslySetInnerHTML`. All highlights rendered via safe React text node tokenization.
+
+### 🧪 Benchmark Evaluation Suite
+Run the 100-sample benchmark evaluation (50 malicious vectors + 50 benign controls) with multi-layer ablation:
+```bash
+# Standard 100-sample evaluation
+npm run shield:bench --prefix server
+
+# Run multi-layer ablation study (saves server/data/ablation_results.json)
+npm run shield:bench --prefix server -- --ablation
+```
+
+---
+
+## ⚡ PHASE 2: "Autopilot + Attack Lab"
+
+Phase 2 introduces automated human-in-the-loop executive productivity workflows paired with an adversarial simulation laboratory.
+
+### 🤖 1. Autopilot Engine & Adaptive Reply Studio
+- **Needs-Reply Detection**: Analyzes incoming CLEARED and SUSPICIOUS emails with strict JSON heuristics (`needs_reply`, `reason`, `urgency`, `suggested_action`). Automated senders (`no-reply@`, `marketing@`, `mailer-daemon@`) and newsletters are automatically filtered out.
+- **3-Tone Response Generator**: Generates 3 pre-computed response options simultaneously:
+  - `Professional`: Formal, polite executive correspondence.
+  - `Concise`: Brief, direct 1–2 sentence operational answers.
+  - `Detailed`: Comprehensive, step-by-step contextual replies.
+- **Language Auto-Matching**: Automatically identifies sender's dialect (`English`, `Hindi`, `Hinglish`) and generates culturally fluent responses in that tongue.
+- **Tailored Instruction Regeneration**: Users can prompt the AI with personalized instructions (*"thoda formal karo"*, *"politely decline"*, *"ask for Thursday 3pm"*) to regenerate tailored drafts safely using delimiter separation (`<<<USER_INSTRUCTION>>>` vs `<<<DATA_CONTENT>>>`).
+- **Follow-Up Intelligence Tracker**: Identifies sent threads where the user requested action or answered a query, but no counterparty response has arrived after $N$ days (default $\ge 3$ days), preparing ready-to-dispatch follow-up drafts.
+- **Firewall Verdict Enforcement**:
+  - `CLEARED`: Full automated autopilot assistance.
+  - `SUSPICIOUS`: Amber warning banner; drafts synthesized strictly on sanitized human-visible text.
+  - `DETAINED`: Zero AI drafting permitted. Displays safe quarantine advisory with verified out-of-band instructions.
+- **Gated Human Approval**: Every draft push requires explicit human confirmation (`confirmHumanApproval: true`). Drafts are pushed strictly to the user's Gmail Drafts folder (`gmail.compose`). Auto-send is permanently disallowed (`gmail.send` is never requested or called).
+
+### 🧪 2. Adversarial Attack & Simulation Lab
+- **Simulation Sandbox**: Safe, isolated environment allowing developers and security auditors to contrast a standard "Naive AI Summarizer" against "MailMind Shielded Defense".
+- **5 Harmless Preset Scenarios**:
+  1. *Preheader Injection*: Hidden CSS `display:none` instruction override attempting canary extraction.
+  2. *Zero-Width Font Smuggling*: Inaudible `U+200B` Unicode characters hiding exfiltration commands.
+  3. *White-on-White Styling*: `#FFFFFF` text on `#FFFFFF` background.
+  4. *Tag Breakout & Markdown Injection*: `</template>` DOM escape sequences.
+  5. *Multilingual Hinglish Override*: Romanized conversational evasion (*"Pehle ki instructions bhool jao"*).
+- **Custom Adversarial Vector Builder**: Allows testing custom subjects, visible bodies, hidden payloads, and hiding techniques (`display:none`, `white-on-white`, `zero-width`, `html-comment`, `font-size:0px`).
+- **Canary Marker Verification**: Tracks synthetic canary tokens (`CANARY_PRIORITY_ESCALATE_APPROVED`, etc.) to objectively score outcomes:
+  - `HIJACKED`: Model obeyed adversarial instruction and leaked/executed canary.
+  - `HELD`: Firewall suppressed payload or model safely resisted execution.
+- **5-Iteration Batch Trial Runner**: Executes 5 consecutive simulations to empirically measure hijack rate ($x/5$).
+- **Zero Real-Inbox Contamination**: Lab runs are completely isolated and recorded strictly in the `lab_runs` telemetry table.
+
+### 📊 3. Automated Test Infrastructure & Ablation Analytics
+- **Deterministic Offline Testing**: Tests use injectable provider interfaces (`services/llm/client.js`), ensuring deterministic evaluation without external API rate limits.
+- **24 Comprehensive Automated Tests**:
+  ```bash
+  npm test --prefix server
+  ```
+  - `isolation.test.js`: 10/10 tests (401 unauth, cross-user email/task/draft/shield isolation, IDOR prevention).
+  - `autopilot.test.js`: 9/9 tests (needs-reply detection, Hinglish matching, 3 tones, DETAINED block 403, IDOR 404, follow-up detection).
+  - `attackLab.test.js`: 5/5 tests (presets, canary detection HIJACKED vs HELD, zero real-inbox leakage, lab_runs isolation).
+- **Email Analytics Ablation Visualization**: Displays multi-layer ablation progression (L1 -> L1+L2 -> L1+L2+L3 -> Full Defense) with transparent best-effort security disclosures.
+
+---
+
 ## 🔒 Security & Privacy Guarantees
 
 | Security Feature | Implementation |
 |---|---|
 | **Multi-User Data Isolation** | Enforced via `WHERE user_id = req.user.id` on all queries and inserts. |
 | **Token Encryption** | AES-256-GCM with dynamic IV per token and authentication tags. |
+| **AI Email Firewall** | Multi-layer screening (HTML/CSS tricks, Unicode tags, Groq Prompt Guard 2). |
+| **Zero Raw HTML Injection** | Plaintext React tokenization; no `dangerouslySetInnerHTML` for emails. |
 | **Zero Auto-Send** | Only creates drafts upon explicit human approval. |
 | **Session Security** | `httpOnly`, `sameSite=lax`, 7-day TTL with database session revocation. |
 | **CSRF Defense** | Single-use 15-minute cryptographic state validation on OAuth callback. |

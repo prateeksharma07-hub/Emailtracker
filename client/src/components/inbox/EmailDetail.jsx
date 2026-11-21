@@ -14,11 +14,12 @@ import {
   Flame, 
   FileEdit,
   Eye,
-  CornerDownRight
+  CornerDownRight,
+  Fingerprint
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 
-export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, onToggleTask, onRefreshEmail }) {
+export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, onToggleTask, onRefreshEmail, onInspectCheckpoint }) {
   if (!email) return null;
 
   const [activeTab, setActiveTab] = useState('body'); // 'body' | 'raw'
@@ -127,6 +128,17 @@ export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, on
         </button>
 
         <div className="flex items-center space-x-2">
+          {onInspectCheckpoint && (
+            <button
+              onClick={() => onInspectCheckpoint(email.id)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer shadow-xs"
+              title="Inspect in AI Firewall Checkpoint (X-Ray)"
+            >
+              <Fingerprint className="w-3.5 h-3.5 text-cyan-500" />
+              <span>X-Ray Checkpoint</span>
+            </button>
+          )}
+
           {onDelete && (
             <button
               onClick={() => onDelete(email.id)}
@@ -146,6 +158,37 @@ export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, on
             {email.category}
           </span>
           {getPriorityBadge(email.priority_score)}
+
+          {/* Shield Verdict Badge */}
+          {email.shield_verdict === 'DETAINED' ? (
+            <button
+              onClick={() => onInspectCheckpoint && onInspectCheckpoint(email.id)}
+              className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 transition-colors cursor-pointer"
+              title="Click to inspect in Checkpoint (X-Ray)"
+            >
+              <ShieldAlert className="w-3 h-3 text-rose-500" />
+              <span>DETAINED (Blocked Injection)</span>
+            </button>
+          ) : email.shield_verdict === 'SUSPICIOUS' ? (
+            <button
+              onClick={() => onInspectCheckpoint && onInspectCheckpoint(email.id)}
+              className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors cursor-pointer"
+              title="Click to inspect in Checkpoint (X-Ray)"
+            >
+              <ShieldAlert className="w-3 h-3 text-amber-500" />
+              <span>SUSPICIOUS (Anomalous Structure)</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onInspectCheckpoint && onInspectCheckpoint(email.id)}
+              className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+              title="Click to inspect in Checkpoint (X-Ray)"
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-500" />
+              <span>CLEARED (Shield Verified)</span>
+            </button>
+          )}
+
           {Boolean(email.is_sensitive) && (
             <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
               <ShieldAlert className="w-3 h-3" />
@@ -176,6 +219,29 @@ export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, on
           </div>
         </div>
       </div>
+
+      {/* Detained Adversarial Injection Alert */}
+      {email.shield_verdict === 'DETAINED' && (
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-800 dark:text-rose-300 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 font-bold text-rose-600 dark:text-rose-400">
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+              <span className="uppercase tracking-wider font-mono">AI Firewall: Adversarial Prompt Injection Quarantined</span>
+            </div>
+            {onInspectCheckpoint && (
+              <button
+                onClick={() => onInspectCheckpoint(email.id)}
+                className="font-mono text-[11px] font-bold underline text-rose-500 hover:text-rose-400 cursor-pointer"
+              >
+                Inspect in X-Ray Checkpoint &rarr;
+              </button>
+            )}
+          </div>
+          <p className="leading-relaxed">
+            MailMind's defensive pipeline intercepted an instruction override or invisible steganographic payload inside this email. Automated response generation was suppressed to prevent unauthorized LLM actions.
+          </p>
+        </div>
+      )}
 
       {/* Sensitive Protection Notice if applicable */}
       {Boolean(email.is_sensitive) && (
@@ -357,12 +423,24 @@ export default function EmailDetail({ email, onBack, onSelectDraft, onDelete, on
         </div>
 
         {activeTab === 'body' ? (
-          <div 
-            className="prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed overflow-x-auto"
-            dangerouslySetInnerHTML={{ __html: email.body_html || `<p>${email.body_text}</p>` }}
-          />
+          <div className="space-y-3">
+            <div className="text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans p-4 rounded-xl bg-slate-50/50 dark:bg-white/5 select-text border border-slate-200/50 dark:border-white/5">
+              {email.body_text || email.snippet || '(No content)'}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+              <span>Sanitized Text View (Raw HTML execution suppressed for prompt firewall security)</span>
+              {onInspectCheckpoint && (
+                <button
+                  onClick={() => onInspectCheckpoint(email.id)}
+                  className="text-cyan-500 hover:text-cyan-400 font-bold underline"
+                >
+                  Inspect in X-Ray Checkpoint &rarr;
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
-          <pre className="font-mono text-xs whitespace-pre-wrap leading-relaxed text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-white/5 p-4 rounded-xl overflow-x-auto">
+          <pre className="font-mono text-xs whitespace-pre-wrap leading-relaxed text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-white/5 p-4 rounded-xl overflow-x-auto select-text">
             {email.body_text || email.snippet}
           </pre>
         )}

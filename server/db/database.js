@@ -16,6 +16,8 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 const dbPath = path.resolve(__dirname, '..', 'mailmind.db');
 
 export const db = new DatabaseSync(dbPath);
+db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA busy_timeout = 5000;');
 
 /**
  * Checks if a column exists in a given SQLite table
@@ -101,6 +103,78 @@ function runMigrations() {
     console.log('[Migration] Adding user_id column to activity_logs table...');
     db.exec(`ALTER TABLE activity_logs ADD COLUMN user_id TEXT;`);
   }
+
+  // 6b. Ensure `shield_verdict` exists in `emails`
+  if (tableExists('emails') && !columnExists('emails', 'shield_verdict')) {
+    console.log('[Migration] Adding shield_verdict column to emails table...');
+    db.exec(`ALTER TABLE emails ADD COLUMN shield_verdict TEXT DEFAULT 'CLEARED';`);
+  }
+
+  // 6c. Ensure `shield_scans` table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shield_scans (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email_id TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      threat_score INTEGER NOT NULL DEFAULT 0,
+      layers_json TEXT NOT NULL,
+      hidden_segments_json TEXT NOT NULL,
+      visible_text TEXT,
+      ai_text TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+    );
+  `);
+
+  // 6d. Phase 2: Autopilot columns in `emails`
+  if (tableExists('emails')) {
+    if (!columnExists('emails', 'needs_reply')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN needs_reply INTEGER DEFAULT 0;`);
+    }
+    if (!columnExists('emails', 'needs_reply_reason')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN needs_reply_reason TEXT;`);
+    }
+    if (!columnExists('emails', 'needs_reply_urgency')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN needs_reply_urgency INTEGER DEFAULT 1;`);
+    }
+    if (!columnExists('emails', 'suggested_action')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN suggested_action TEXT;`);
+    }
+    if (!columnExists('emails', 'detected_language')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN detected_language TEXT DEFAULT 'English';`);
+    }
+    if (!columnExists('emails', 'is_follow_up_candidate')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN is_follow_up_candidate INTEGER DEFAULT 0;`);
+    }
+    if (!columnExists('emails', 'follow_up_due_date')) {
+      db.exec(`ALTER TABLE emails ADD COLUMN follow_up_due_date DATETIME;`);
+    }
+  }
+
+  // 6e. Phase 2: Autopilot columns in `drafts`
+  if (tableExists('drafts')) {
+    if (!columnExists('drafts', 'language')) {
+      db.exec(`ALTER TABLE drafts ADD COLUMN language TEXT DEFAULT 'English';`);
+    }
+    if (!columnExists('drafts', 'draft_type')) {
+      db.exec(`ALTER TABLE drafts ADD COLUMN draft_type TEXT DEFAULT 'REPLY';`);
+    }
+  }
+
+  // 6f. Phase 2: Defensive Attack Lab Runs Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lab_runs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      scenario TEXT NOT NULL,
+      results_json TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_lab_runs_user_id ON lab_runs(user_id);
+  `);
 
   // 7. Ensure `oauth_states` table exists
   db.exec(`
@@ -193,6 +267,11 @@ function runMigrations() {
 
     CREATE INDEX IF NOT EXISTS idx_logs_user_id ON activity_logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_logs_created ON activity_logs(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_shield_user_id ON shield_scans(user_id);
+    CREATE INDEX IF NOT EXISTS idx_shield_email_id ON shield_scans(email_id);
+    CREATE INDEX IF NOT EXISTS idx_shield_verdict ON shield_scans(verdict);
+    CREATE INDEX IF NOT EXISTS idx_emails_shield_verdict ON emails(shield_verdict);
   `);
 
   console.log('[Database] Migrations verified successfully.');
