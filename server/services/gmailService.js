@@ -7,6 +7,7 @@ import { runShieldPipeline } from './shield/shieldPipeline.js';
 import { validateAiOutput } from './shield/outputValidator.js';
 import { ingestIncomingEmailHeaders } from './senderMemory/senderIngestion.js';
 import { extractDeadlinesForEmail, isCalendarExportEnabled } from './deadlines/deadlineService.js';
+import { extractCampusItemsForEmail, isCampusModeEnabled } from './campus/campusService.js';
 
 // Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
 class ConcurrencyLimiter {
@@ -425,6 +426,20 @@ export async function syncGmailInbox(userId, options = {}) {
             t.due_source_flagged ? 1 : 0,
             t.deadline_kind || 'general'
           );
+        }
+      }
+
+      // Feature 3: Campus Mode Extraction
+      if (isCampusModeEnabled() && shieldResult.verdict !== 'DETAINED') {
+        try {
+          await extractCampusItemsForEmail({
+            email: parsedEmail,
+            visibleText: shieldResult.visibleText,
+            shieldVerdict: shieldResult.verdict,
+            userId
+          });
+        } catch (campusErr) {
+          console.warn('[Campus Extraction Notice]', campusErr.message);
         }
       }
 
