@@ -34,7 +34,8 @@ import {
   ChevronRight,
   Fingerprint,
   FlaskConical,
-  Bot
+  Bot,
+  GraduationCap
 } from 'lucide-react';
 
 import EmailList from './components/inbox/EmailList';
@@ -48,6 +49,7 @@ import AttackLabView from './components/lab/AttackLabView';
 import AnalyticsView from './components/analytics/AnalyticsView';
 import ActivityLogsView from './components/logs/ActivityLogsView';
 import SenderMemoryView from './components/senders/SenderMemoryView';
+import CampusView from './components/campus/CampusView';
 import SettingsModal from './components/settings/SettingsModal';
 
 export default function App() {
@@ -85,6 +87,21 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [checkpointEmailId, setCheckpointEmailId] = useState(null);
+  const [userSettings, setUserSettings] = useState(null);
+
+  // Fetch User Settings (Timezone, Campus Mode)
+  useEffect(() => {
+    if (isAuthenticated) {
+      apiFetch('/api/settings')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.settings) {
+            setUserSettings(data.settings);
+          }
+        })
+        .catch(err => console.error('Failed to load user settings in App', err));
+    }
+  }, [isAuthenticated]);
 
   // Fetch Emails with active filters & pagination strictly for authenticated user
   const fetchEmails = useCallback(async () => {
@@ -396,6 +413,28 @@ export default function App() {
                 {analyticsData?.metrics?.pendingTasks || 0}
               </span>
             </button>
+
+            {/* Conditional Campus Mode Tab (Visible only when enabled in settings) */}
+            {userSettings?.campus_mode && (
+              <button
+                onClick={() => { setActiveTab('campus'); setSelectedEmail(null); }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'campus'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/25'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  <GraduationCap className="w-4 h-4 text-indigo-400" />
+                  <span>Campus Mode</span>
+                </div>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
+                  activeTab === 'campus' ? 'bg-white/20' : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                }`}>
+                  College
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => { setActiveTab('drafts'); setSelectedEmail(null); }}
@@ -720,6 +759,14 @@ export default function App() {
             <TasksView onSelectEmailById={handleSelectEmailById} />
           )}
 
+          {/* SCREEN: CAMPUS MODE & SEMESTER TIMELINE */}
+          {activeTab === 'campus' && (
+            <CampusView
+              onSelectEmailById={handleSelectEmailById}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          )}
+
           {/* SCREEN 3: AI DRAFTS & APPROVALS */}
           {activeTab === 'drafts' && (
             <DraftsView onOpenApprovalModal={(draft) => setApprovalDraft(draft)} />
@@ -778,6 +825,7 @@ export default function App() {
           fetchEmails();
           fetchAnalytics();
         }}
+        onSettingsUpdated={(newSettings) => setUserSettings(newSettings)}
       />
 
     </div>

@@ -16,12 +16,14 @@ import {
   LogOut,
   Mail,
   ShieldAlert,
-  Trash2
+  Trash2,
+  GraduationCap,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../utils/api';
 
-export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
+export default function SettingsModal({ isOpen, onClose, onDemoLoaded, onSettingsUpdated }) {
   if (!isOpen) return null;
 
   const { 
@@ -35,7 +37,7 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
     connectGmail 
   } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('account'); // 'account' | 'agent' | 'security'
+  const [activeTab, setActiveTab] = useState('account'); // 'account' | 'agent' | 'campus' | 'security'
   const [isDeleting, setIsDeleting] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [connectError, setConnectError] = useState(null);
@@ -46,6 +48,73 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
   const [autoDraftReplies, setAutoDraftReplies] = useState(true);
   const [agentTone, setAgentTone] = useState('Executive & Concise');
   const [savedNotice, setSavedNotice] = useState(false);
+
+  // Campus & Calendar preferences
+  const [campusMode, setCampusMode] = useState(false);
+  const [campusDomains, setCampusDomains] = useState('');
+  const [timezone, setTimezone] = useState('Asia/Kolkata');
+  const [reminderDays, setReminderDays] = useState(1);
+  const [reminderHours, setReminderHours] = useState(1);
+  const [isSavingCampus, setIsSavingCampus] = useState(false);
+  const [campusSavedNotice, setCampusSavedNotice] = useState(false);
+
+  // Load settings from server
+  React.useEffect(() => {
+    if (isOpen) {
+      apiFetch('/api/settings')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.settings) {
+            setCampusMode(Boolean(data.settings.campus_mode));
+            setCampusDomains((data.settings.campus_domains || []).join(', '));
+            setTimezone(data.settings.timezone || 'Asia/Kolkata');
+            if (data.settings.reminder_prefs) {
+              setReminderDays(data.settings.reminder_prefs.days_before !== undefined ? data.settings.reminder_prefs.days_before : 1);
+              setReminderHours(data.settings.reminder_prefs.hours_before !== undefined ? data.settings.reminder_prefs.hours_before : 1);
+            }
+          }
+        })
+        .catch(err => console.error('Failed to load settings', err));
+    }
+  }, [isOpen]);
+
+  const handleSaveCampusSettings = async () => {
+    try {
+      setIsSavingCampus(true);
+      const domainArray = campusDomains
+        .split(',')
+        .map(d => d.trim().toLowerCase().replace(/^@/, ''))
+        .filter(Boolean);
+
+      const res = await apiFetch('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          campus_mode: campusMode,
+          campus_domains: domainArray,
+          timezone,
+          reminder_prefs: {
+            days_before: Number(reminderDays) || 0,
+            hours_before: Number(reminderHours) || 0
+          }
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setCampusSavedNotice(true);
+        if (onSettingsUpdated) {
+          onSettingsUpdated(data.settings);
+        }
+        setTimeout(() => setCampusSavedNotice(false), 2500);
+      } else {
+        alert(data.error || 'Failed to update campus settings.');
+      }
+    } catch (err) {
+      console.error('Failed to save settings', err);
+    } finally {
+      setIsSavingCampus(false);
+    }
+  };
 
   const handleConnectLive = async () => {
     setConnectError(null);
@@ -133,6 +202,18 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
           >
             <Cpu className="w-3.5 h-3.5" />
             <span>AI Agent</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('campus')}
+            className={`flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'campus'
+                ? 'bg-white dark:bg-violet-600 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            <span>Campus</span>
           </button>
 
           <button
@@ -370,6 +451,111 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
               className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-md transition-all cursor-pointer"
             >
               {savedNotice ? 'Preferences Saved!' : 'Save Agent Preferences'}
+            </button>
+          </div>
+        )}
+
+        {/* Tab: Campus Mode & Calendar Settings */}
+        {activeTab === 'campus' && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Campus Mode Toggle Card */}
+            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Campus Mode & Semester Timeline
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Enables academic milestone extraction for courses, exams, fees, and placements.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={campusMode}
+                  onChange={(e) => setCampusMode(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                />
+              </div>
+
+              {/* Campus Domains */}
+              <div className="pt-2 border-t border-slate-200/40 dark:border-white/5 space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  College & University Domains
+                </label>
+                <input
+                  type="text"
+                  value={campusDomains}
+                  onChange={(e) => setCampusDomains(e.target.value)}
+                  placeholder="e.g. college.edu, iitb.ac.in, dtu.ac.in"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Comma-separated domains. Standard academic domains ending in .ac.in or .edu are detected automatically.
+                </p>
+              </div>
+
+              {/* User Timezone */}
+              <div className="pt-2 border-t border-slate-200/40 dark:border-white/5 space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Primary Timezone (Calendar Deadlines)
+                </label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST, UTC+5:30)</option>
+                  <option value="UTC">UTC (Universal Time)</option>
+                  <option value="America/New_York">America/New_York (EST/EDT)</option>
+                  <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+                  <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+                  <option value="Europe/London">Europe/London (GMT/BST)</option>
+                  <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+                  <option value="Asia/Dubai">Asia/Dubai (GST, UTC+4)</option>
+                  <option value="Asia/Singapore">Asia/Singapore (SGT, UTC+8)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (JST, UTC+9)</option>
+                  <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</option>
+                </select>
+              </div>
+
+              {/* Reminder Preferences */}
+              <div className="pt-2 border-t border-slate-200/40 dark:border-white/5 space-y-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Calendar Reminder Alarms (VALARM)
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[11px] text-slate-400 block mb-1">Days before due:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="14"
+                      value={reminderDays}
+                      onChange={(e) => setReminderDays(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block mb-1">Hours before due:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="48"
+                      value={reminderHours}
+                      onChange={(e) => setReminderHours(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSaveCampusSettings}
+              disabled={isSavingCampus}
+              className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md transition-all cursor-pointer disabled:opacity-50"
+            >
+              {campusSavedNotice ? 'Campus Settings Saved!' : isSavingCampus ? 'Saving Settings...' : 'Save Campus & Calendar Preferences'}
             </button>
           </div>
         )}
