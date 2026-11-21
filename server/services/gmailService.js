@@ -5,6 +5,7 @@ import { analyzeEmail, fastClassifyEmail } from './groqService.js';
 import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from './sanitizationService.js';
 import { runShieldPipeline } from './shield/shieldPipeline.js';
 import { validateAiOutput } from './shield/outputValidator.js';
+import { ingestIncomingEmailHeaders } from './senderMemory/senderIngestion.js';
 
 // Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
 class ConcurrencyLimiter {
@@ -136,7 +137,8 @@ export function normalizeGmailMessage(rawMessage, userId) {
     body_html: bodyHtml || `<p>${bodyText}</p>`,
     snippet,
     date_received: dateReceived,
-    is_read: rawMessage.labelIds?.includes('UNREAD') ? 0 : 1
+    is_read: rawMessage.labelIds?.includes('UNREAD') ? 0 : 1,
+    headers: headers
   };
 }
 
@@ -360,6 +362,13 @@ export async function syncGmailInbox(userId, options = {}) {
         shieldResult.verdict,
         1
       );
+
+      // Ingest sender profile and email headers metadata for Sender Trust Memory (inside try/catch)
+      try {
+        ingestIncomingEmailHeaders(parsedEmail.id, userId, parsedEmail.headers || []);
+      } catch (ingestErr) {
+        console.warn('[Sender Memory Ingestion Warning]', ingestErr.message);
+      }
 
       // 5. Save Extracted Action Items under user_id
       if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
