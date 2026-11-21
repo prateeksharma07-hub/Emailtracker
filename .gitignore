@@ -27,6 +27,13 @@ client/dist/
 npm-debug.log*
 yarn-debug.log*
 
+# Test artifacts and screenshots
+tests/screenshots/
+*.png
+reproduce_*.json
+tests/*.json
+*.report.json
+
 # OS Files
 .DS_Store
 Thumbs.db

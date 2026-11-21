@@ -51,6 +51,7 @@ import ActivityLogsView from './components/logs/ActivityLogsView';
 import SenderMemoryView from './components/senders/SenderMemoryView';
 import CampusView from './components/campus/CampusView';
 import SettingsModal from './components/settings/SettingsModal';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 export default function App() {
   const { 
@@ -713,91 +714,113 @@ export default function App() {
           {/* SCREEN 1: SMART INBOX */}
           {activeTab === 'inbox' && (
             selectedEmail ? (
-              <EmailDetail
-                email={selectedEmail}
-                onBack={() => setSelectedEmail(null)}
-                onSelectDraft={(draft) => setApprovalDraft(draft)}
-                onDelete={handleDeleteEmail}
-                onToggleTask={handleToggleTask}
-                onRefreshEmail={handleSelectEmailById}
-                onInspectCheckpoint={handleInspectCheckpoint}
-              />
+              <ErrorBoundary viewName="EmailDetail">
+                <EmailDetail
+                  email={selectedEmail}
+                  onBack={() => setSelectedEmail(null)}
+                  onSelectDraft={(draft) => setApprovalDraft(draft)}
+                  onDelete={handleDeleteEmail}
+                  onToggleTask={handleToggleTask}
+                  onRefreshEmail={handleSelectEmailById}
+                  onInspectCheckpoint={handleInspectCheckpoint}
+                />
+              </ErrorBoundary>
             ) : (
-              <EmailList
-                emails={emails}
-                selectedEmailId={selectedEmail?.id}
-                onSelectEmail={handleSelectEmail}
-                onInspectCheckpoint={handleInspectCheckpoint}
-                searchQuery={searchQuery}
-                setSearchQuery={handleSearchChange}
-                priorityFilter={priorityFilter}
-                setPriorityFilter={handlePriorityChange}
-                selectedCategory={selectedCategory}
-                setSelectedCategory={handleCategoryChange}
-                categories={categories}
-                isLoading={isLoadingEmails}
-                pagination={pagination}
-                onPageChange={(p) => setCurrentPage(p)}
-                onTriggerSync={handleTriggerSync}
-                isSyncing={isSyncing}
-                isConnected={isAuthenticated}
-                onConnectGmail={connectGmail}
-              />
+              <ErrorBoundary viewName="Inbox">
+                <EmailList
+                  emails={emails}
+                  selectedEmailId={selectedEmail?.id}
+                  onSelectEmail={handleSelectEmail}
+                  onInspectCheckpoint={handleInspectCheckpoint}
+                  searchQuery={searchQuery}
+                  setSearchQuery={handleSearchChange}
+                  priorityFilter={priorityFilter}
+                  setPriorityFilter={handlePriorityChange}
+                  selectedCategory={selectedCategory}
+                  setSelectedCategory={handleCategoryChange}
+                  categories={categories}
+                  isLoading={isLoadingEmails}
+                  pagination={pagination}
+                  onPageChange={(p) => setCurrentPage(p)}
+                  onTriggerSync={handleTriggerSync}
+                  isSyncing={isSyncing}
+                  isConnected={isAuthenticated}
+                  onConnectGmail={connectGmail}
+                />
+              </ErrorBoundary>
             )
           )}
 
           {/* SCREEN: AUTOPILOT ENGINE */}
           {activeTab === 'autopilot' && (
-            <AutopilotView
-              onOpenApprovalModal={(draft) => setApprovalDraft(draft)}
-              onInspectCheckpoint={handleInspectCheckpoint}
-            />
+            <ErrorBoundary viewName="AutopilotView">
+              <AutopilotView
+                onOpenApprovalModal={(draft) => setApprovalDraft(draft)}
+                onInspectCheckpoint={handleInspectCheckpoint}
+              />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN 2: TASKS & DEADLINES */}
           {activeTab === 'tasks' && (
-            <TasksView onSelectEmailById={handleSelectEmailById} />
+            <ErrorBoundary viewName="TasksView">
+              <TasksView onSelectEmailById={handleSelectEmailById} />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN: CAMPUS MODE & SEMESTER TIMELINE */}
           {activeTab === 'campus' && (
-            <CampusView
-              onSelectEmailById={handleSelectEmailById}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
+            <ErrorBoundary viewName="CampusView">
+              <CampusView
+                onSelectEmailById={handleSelectEmailById}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+              />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN 3: AI DRAFTS & APPROVALS */}
           {activeTab === 'drafts' && (
-            <DraftsView onOpenApprovalModal={(draft) => setApprovalDraft(draft)} />
+            <ErrorBoundary viewName="DraftsView">
+              <DraftsView onOpenApprovalModal={(draft) => setApprovalDraft(draft)} />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN 4: AI FIREWALL CHECKPOINT & X-RAY */}
           {activeTab === 'checkpoint' && (
-            <CheckpointView
-              initialEmailId={checkpointEmailId}
-              onSelectEmailById={handleSelectEmailById}
-            />
+            <ErrorBoundary viewName="CheckpointView">
+              <CheckpointView
+                initialEmailId={checkpointEmailId}
+                onSelectEmailById={handleSelectEmailById}
+              />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN: SENDER TRUST MEMORY */}
           {activeTab === 'senders' && (
-            <SenderMemoryView />
+            <ErrorBoundary viewName="SenderMemoryView">
+              <SenderMemoryView />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN: ATTACK LAB SIMULATION */}
           {activeTab === 'lab' && (
-            <AttackLabView />
+            <ErrorBoundary viewName="AttackLabView">
+              <AttackLabView />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN 5: EMAIL ANALYTICS & INTELLIGENCE */}
           {activeTab === 'analytics' && (
-            <AnalyticsView />
+            <ErrorBoundary viewName="AnalyticsView">
+              <AnalyticsView />
+            </ErrorBoundary>
           )}
 
           {/* SCREEN 6: SECURITY & AUDIT LOGS */}
           {activeTab === 'logs' && (
-            <ActivityLogsView />
+            <ErrorBoundary viewName="ActivityLogsView">
+              <ActivityLogsView />
+            </ErrorBoundary>
           )}
 
         </main>

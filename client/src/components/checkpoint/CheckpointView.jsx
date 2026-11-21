@@ -27,6 +27,7 @@ import {
   Info
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import { normalizeFinding, normalizeScanData } from '../../utils/scanNormalizer';
 
 /**
  * CheckpointView — MailMind AI Email Firewall (Phase 1: Shield + X-Ray)
@@ -49,6 +50,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [scanStats, setScanStats] = useState(null);
   const [errorNotice, setErrorNotice] = useState(null);
+  const [scanFetchError, setScanFetchError] = useState(null);
 
   // Fetch list of emails
   const fetchEmailsList = useCallback(async () => {
@@ -88,14 +90,20 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
     try {
       setIsLoadingScan(true);
       setErrorNotice(null);
+      setScanFetchError(null);
       const res = await apiFetch(`/api/shield/emails/${emailId}`);
       const data = await res.json();
-      if (data.success) {
-        setScanData(data.scan || data);
+      if (data.success && data.scan) {
+        setScanData(normalizeScanData(data.scan));
+      } else if (data.success && !data.scan) {
+        setScanData(normalizeScanData(data));
       } else {
-        setErrorNotice(data.error || 'Failed to load X-Ray scan');
+        const errMsg = data.error || 'Failed to load X-Ray scan';
+        setScanFetchError(errMsg);
+        setErrorNotice(errMsg);
       }
     } catch (err) {
+      setScanFetchError('Network error fetching X-Ray inspection data.');
       setErrorNotice('Network error fetching X-Ray inspection data.');
       console.error(err);
     } finally {
@@ -144,13 +152,16 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
     try {
       setIsRescanning(true);
       setErrorNotice(null);
+      setScanFetchError(null);
       const res = await apiFetch(`/api/shield/rescan/${selectedEmailId}`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setScanData(data);
+        const rawScan = data.scan || data;
+        const normalized = normalizeScanData(rawScan);
+        setScanData(normalized);
         fetchStats();
         // Update local email item in list
-        setEmails(prev => prev.map(e => e.id === selectedEmailId ? { ...e, shield_verdict: data.verdict } : e));
+        setEmails(prev => prev.map(e => e.id === selectedEmailId ? { ...e, shield_verdict: normalized.verdict } : e));
       } else {
         setErrorNotice(data.error || 'Rescan failed');
       }
@@ -316,6 +327,17 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
           stampColor: 'text-amber-400',
           badgeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
           icon: AlertTriangle
+        };
+      case 'UNSCANNED':
+        return {
+          label: 'UNSCANNED',
+          sub: 'Pending Firewall Inspection',
+          color: 'text-slate-400',
+          bg: 'bg-slate-500/10 border-slate-500/30',
+          stampBorder: 'border-slate-500',
+          stampColor: 'text-slate-400',
+          badgeBg: 'bg-slate-500/20 text-slate-300 border border-slate-500/30',
+          icon: HelpCircle
         };
       default:
         return {
@@ -515,11 +537,36 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
               <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs font-mono">Executing Multi-Layer Checkpoint Inspection...</p>
             </div>
+          ) : scanFetchError ? (
+            <div className="glass-card rounded-3xl p-12 text-center text-slate-400 space-y-4 border border-rose-500/30 bg-rose-950/10">
+              <AlertCircle className="w-10 h-10 text-rose-400 mx-auto" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-slate-900 dark:text-white">Inspection Scan Failed to Load</p>
+                <p className="text-xs text-rose-400">{scanFetchError}</p>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => fetchScanDetail(selectedEmailId)}
+                  className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center space-x-1.5 border border-slate-700 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Retry Inspection</span>
+                </button>
+                <button
+                  onClick={handleRescan}
+                  disabled={isRescanning}
+                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Force Rescan</span>
+                </button>
+              </div>
+            </div>
           ) : !scanData ? (
             <div className="glass-card rounded-3xl p-16 text-center text-slate-400 space-y-3 border border-slate-200/80 dark:border-white/10">
               <Eye className="w-10 h-10 text-slate-400 mx-auto" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                Select an email from the left sidebar to perform X-Ray inspection
+                {emails.length === 0 ? 'No emails found in your inbox' : 'Select an email from the left sidebar to perform X-Ray inspection'}
               </p>
               <p className="text-xs text-slate-500">
                 Contrast human rendered content against naive LLM parsing to detect invisible prompt overrides.
@@ -536,14 +583,14 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     <div className="flex items-center space-x-2">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Target Message ID:</span>
                       <span className="text-xs font-mono font-bold text-violet-600 dark:text-violet-400 truncate max-w-[200px]">
-                        {scanData.email?.id || selectedEmailId}
+                        {scanData.emailId || scanData.email?.id || selectedEmailId}
                       </span>
                     </div>
                     <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
-                      {scanData.email?.subject || '(No Subject)'}
+                      {scanData.subject || scanData.email?.subject || '(No Subject)'}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      Sender: &lt;{scanData.email?.sender}&gt;
+                      Sender: &lt;{scanData.sender || scanData.email?.sender || 'Unknown Sender'}&gt;
                     </p>
                   </div>
 
@@ -592,7 +639,9 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                           ? 'Automated response drafts suppressed. Email isolated to prevent LLM prompt override.'
                           : currentVerdict === 'SUSPICIOUS'
                             ? 'Anomalous structural artifacts detected. AI restricted to visible text only.'
-                            : 'All structural layers verified. No adversarial overrides detected.'}
+                            : currentVerdict === 'UNSCANNED'
+                              ? 'Is email ka scan abhi nahi hua hai. Run firewall scan to evaluate threat level.'
+                              : 'All structural layers verified. No adversarial overrides detected.'}
                       </p>
                     </div>
                   </div>
@@ -604,9 +653,9 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     </span>
                     <div className="flex items-baseline justify-center space-x-1">
                       <span className={`text-3xl font-black font-mono ${
-                        scanData.threatScore >= 60 ? 'text-rose-500' : scanData.threatScore >= 25 ? 'text-amber-500' : 'text-emerald-500'
+                        (scanData.threatScore ?? 0) >= 60 ? 'text-rose-500' : (scanData.threatScore ?? 0) >= 25 ? 'text-amber-500' : 'text-emerald-500'
                       }`}>
-                        {scanData.threatScore}
+                        {scanData.threatScore ?? 0}
                       </span>
                       <span className="text-xs font-mono text-slate-400">/ 100</span>
                     </div>
@@ -614,14 +663,35 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     <div className="w-full bg-slate-200 dark:bg-white/10 h-1.5 rounded-full overflow-hidden mt-2">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          scanData.threatScore >= 60 ? 'bg-rose-500' : scanData.threatScore >= 25 ? 'bg-amber-500' : 'bg-emerald-500'
+                          (scanData.threatScore ?? 0) >= 60 ? 'bg-rose-500' : (scanData.threatScore ?? 0) >= 25 ? 'bg-amber-500' : 'bg-emerald-500'
                         }`}
-                        style={{ width: `${Math.min(100, Math.max(5, scanData.threatScore))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(5, scanData.threatScore ?? 0))}%` }}
                       />
                     </div>
                   </div>
 
                 </div>
+
+                {/* Unscanned Alert Banner with Direct Action */}
+                {currentVerdict === 'UNSCANNED' && (
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex items-center space-x-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-300">Is email ka scan abhi nahi hua hai</p>
+                        <p className="text-[11px] text-amber-400/80">This email has not been inspected by the Shield Firewall yet. Click Scan Now to evaluate.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRescan}
+                      disabled={isRescanning}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer disabled:opacity-50 shadow-sm"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRescanning ? 'animate-spin' : ''}`} />
+                      <span>{isRescanning ? 'Scanning...' : 'Scan Now'}</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* 4 Diagnostic Layer Cards */}
                 <div className="space-y-2 pt-2">
@@ -661,7 +731,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                             {layer.findings && layer.findings.length > 0 ? (
                               layer.findings.slice(0, 2).map((f, fi) => (
                                 <p key={fi} className="truncate text-rose-400">
-                                  • {f}
+                                  • {normalizeFinding(f)}
                                 </p>
                               ))
                             ) : (
@@ -781,7 +851,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                           <span className="text-[10px] font-mono uppercase font-bold text-slate-400">Layer 4 Findings:</span>
                           {layer4.findings.map((f, i) => (
                             <p key={i} className="text-xs font-mono text-rose-500 dark:text-rose-400">
-                              • {f}
+                              • {normalizeFinding(f)}
                             </p>
                           ))}
                         </div>

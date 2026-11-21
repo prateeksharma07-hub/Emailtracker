@@ -18,21 +18,36 @@ router.get('/emails/:id', async (req, res) => {
     const emailId = req.params.id;
 
     // Verify email ownership
-    const email = db.prepare('SELECT id, subject, sender, sender_name, date_received, shield_verdict FROM emails WHERE id = ? AND user_id = ?').get(emailId, userId);
+    const email = db.prepare('SELECT id, subject, sender, sender_name, date_received, body_text, snippet, shield_verdict FROM emails WHERE id = ? AND user_id = ?').get(emailId, userId);
     if (!email) {
       return res.status(404).json({ success: false, error: 'Email not found or access denied.' });
     }
 
     // Check if scan already exists in database
-    let scan = db.prepare('SELECT * FROM shield_scans WHERE email_id = ? AND user_id = ?').get(emailId, userId);
+    const scan = db.prepare('SELECT * FROM shield_scans WHERE email_id = ? AND user_id = ?').get(emailId, userId);
 
-    // If not scanned yet, trigger scan on demand
-    if (!scan) {
-      scan = await scanAndSaveShieldResult(emailId, userId);
+    let layers = [];
+    if (scan) {
+      if (typeof scan.layers_json === 'string') {
+        try { layers = JSON.parse(scan.layers_json); } catch (e) { layers = []; }
+      } else if (Array.isArray(scan.layers)) {
+        layers = scan.layers;
+      }
     }
 
-    const layers = typeof scan.layers_json === 'string' ? JSON.parse(scan.layers_json) : (scan.layers || []);
-    const hiddenSegments = typeof scan.hidden_segments_json === 'string' ? JSON.parse(scan.hidden_segments_json) : (scan.hiddenSegments || []);
+    let hiddenSegments = [];
+    if (scan) {
+      if (typeof scan.hidden_segments_json === 'string') {
+        try { hiddenSegments = JSON.parse(scan.hidden_segments_json); } catch (e) { hiddenSegments = []; }
+      } else if (Array.isArray(scan.hiddenSegments)) {
+        hiddenSegments = scan.hiddenSegments;
+      }
+    }
+
+    const verdict = scan?.verdict || email.shield_verdict || 'UNSCANNED';
+    const threatScore = scan ? (scan.threat_score !== undefined ? scan.threat_score : (scan.threatScore ?? 0)) : 0;
+    const visibleText = scan ? (scan.visible_text ?? scan.visibleText ?? email.body_text ?? email.snippet ?? '') : (email.body_text ?? email.snippet ?? '');
+    const aiText = scan ? (scan.ai_text ?? scan.aiText ?? email.body_text ?? email.snippet ?? '') : (email.body_text ?? email.snippet ?? '');
 
     // Additive sender profile & header meta
     let headersMeta = null;
@@ -48,19 +63,19 @@ router.get('/emails/:id', async (req, res) => {
     res.json({
       success: true,
       scan: {
-        id: scan.id || scan.scanId,
+        id: scan?.id || scan?.scanId || null,
         emailId,
-        subject: email.subject,
-        sender: email.sender_name || email.sender,
-        verdict: scan.verdict,
-        threatScore: scan.threat_score !== undefined ? scan.threat_score : scan.threatScore,
-        visibleText: scan.visible_text !== undefined ? scan.visible_text : scan.visibleText,
-        aiText: scan.ai_text !== undefined ? scan.ai_text : scan.aiText,
+        subject: email.subject || '(No Subject)',
+        sender: email.sender_name || email.sender || 'Unknown',
+        verdict,
+        threatScore,
+        visibleText,
+        aiText,
         layers,
         hiddenSegments,
         senderProfile,
         headersMeta,
-        createdAt: scan.created_at || new Date().toISOString()
+        createdAt: scan?.created_at || email.date_received || new Date().toISOString()
       }
     });
   } catch (err) {
@@ -111,6 +126,7 @@ router.get('/stats', (req, res) => {
       CLEARED: 0,
       SUSPICIOUS: 0,
       DETAINED: 0,
+      UNSCANNED: 0,
       total: 0
     };
 
