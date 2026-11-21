@@ -1,9 +1,20 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { db } from '../db/database.js';
 import { createGmailDraft } from '../services/gmailService.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { evaluateDraft, acknowledgeDraftCheck, isRegretShieldEnabled } from '../services/regret/regretShield.js';
 
 const router = express.Router();
+
+// Rate limiter for regret check endpoint (protects Groq LLM inference cost)
+const regretCheckLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { success: false, error: 'Regret check rate limit reached. Please wait a moment.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 router.use(requireAuth);
 
@@ -95,13 +106,54 @@ router.put('/:id', (req, res) => {
 });
 
 /**
+ * POST /api/drafts/:id/check
+ * Runs Regret Shield checks on draft (or prospective draft text)
+ */
+router.post('/:id/check', regretCheckLimiter, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!draft) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+
+    const draftText = req.body.text !== undefined ? req.body.text : draft.reply_body;
+    const recipientContext = {
+      toAddresses: [draft.to_address],
+      fromAddress: email?.sender || '',
+      senderName: email?.sender_name || ''
+    };
+
+    const evaluation = await evaluateDraft({
+      draftId: draft.id,
+      draftText,
+      userId,
+      recipientContext,
+      visibleContext: email?.body_text || email?.snippet || '',
+      forceRecheck: Boolean(req.body.forceRecheck)
+    });
+
+    res.json({
+      success: true,
+      draftId: draft.id,
+      check: evaluation
+    });
+  } catch (err) {
+    console.error('[Regret Shield Check Error]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/drafts/:id/approve
  * STRICT HUMAN-IN-THE-LOOP APPROVAL ENDPOINT
  * Saves approved draft in user's Gmail Drafts using their own decrypted tokens.
  */
 router.post('/:id/approve', async (req, res) => {
   const userId = req.user.id;
-  const { confirmHumanApproval, overrides } = req.body;
+  const { confirmHumanApproval, overrides, acknowledged } = req.body;
 
   if (!confirmHumanApproval) {
     return res.status(400).json({
@@ -111,6 +163,51 @@ router.post('/:id/approve', async (req, res) => {
   }
 
   try {
+    const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!draft) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+
+    // SECURITY GATE: Drafts linked to DETAINED emails can never be approved
+    if (email && email.shield_verdict === 'DETAINED') {
+      return res.status(403).json({
+        success: false,
+        error: 'SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.'
+      });
+    }
+
+    // Regret Shield Guard (if feature is enabled)
+    if (isRegretShieldEnabled()) {
+      const finalBody = overrides?.reply_body || draft.reply_body;
+      const recipientContext = {
+        toAddresses: [overrides?.to_address || draft.to_address],
+        fromAddress: email?.sender || '',
+        senderName: email?.sender_name || ''
+      };
+
+      const evaluation = await evaluateDraft({
+        draftId: draft.id,
+        draftText: finalBody,
+        userId,
+        recipientContext,
+        visibleContext: email?.body_text || email?.snippet || ''
+      });
+
+      if (evaluation.severity === 'high' && !acknowledged) {
+        return res.status(409).json({
+          success: false,
+          error: 'REGRET_SHIELD_HIGH_RISK',
+          message: 'Draft contains high-risk elements (e.g. unfilled placeholders, sensitive data, harsh tone). Explicit acknowledgment is required to authorize.',
+          regretCheck: evaluation
+        });
+      }
+
+      if (acknowledged) {
+        acknowledgeDraftCheck(draft.id, evaluation.draftHash, userId);
+      }
+    }
+
     const result = await createGmailDraft(req.params.id, userId, overrides || {});
     res.json({
       success: true,
@@ -120,7 +217,7 @@ router.post('/:id/approve', async (req, res) => {
   } catch (err) {
     console.error('[Draft Approval Error]', err.message);
     const status = err.statusCode || 500;
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, error: err.message, regretCheck: err.regretCheck });
   }
 });
 
@@ -130,7 +227,7 @@ router.post('/:id/approve', async (req, res) => {
  */
 router.post('/:id/send', async (req, res) => {
   const userId = req.user.id;
-  const { confirmHumanApproval, overrides } = req.body;
+  const { confirmHumanApproval, overrides, acknowledged } = req.body;
 
   if (!confirmHumanApproval) {
     return res.status(400).json({
@@ -140,6 +237,51 @@ router.post('/:id/send', async (req, res) => {
   }
 
   try {
+    const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!draft) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+
+    // SECURITY GATE: Drafts linked to DETAINED emails can never be approved
+    if (email && email.shield_verdict === 'DETAINED') {
+      return res.status(403).json({
+        success: false,
+        error: 'SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.'
+      });
+    }
+
+    // Regret Shield Guard (if feature is enabled)
+    if (isRegretShieldEnabled()) {
+      const finalBody = overrides?.reply_body || draft.reply_body;
+      const recipientContext = {
+        toAddresses: [overrides?.to_address || draft.to_address],
+        fromAddress: email?.sender || '',
+        senderName: email?.sender_name || ''
+      };
+
+      const evaluation = await evaluateDraft({
+        draftId: draft.id,
+        draftText: finalBody,
+        userId,
+        recipientContext,
+        visibleContext: email?.body_text || email?.snippet || ''
+      });
+
+      if (evaluation.severity === 'high' && !acknowledged) {
+        return res.status(409).json({
+          success: false,
+          error: 'REGRET_SHIELD_HIGH_RISK',
+          message: 'Draft contains high-risk elements (e.g. unfilled placeholders, sensitive data, harsh tone). Explicit acknowledgment is required to authorize.',
+          regretCheck: evaluation
+        });
+      }
+
+      if (acknowledged) {
+        acknowledgeDraftCheck(draft.id, evaluation.draftHash, userId);
+      }
+    }
+
     const result = await createGmailDraft(req.params.id, userId, overrides || {});
     res.json({
       success: true,
@@ -151,7 +293,7 @@ router.post('/:id/send', async (req, res) => {
   } catch (err) {
     console.error('[Draft Send/Approve Error]', err.message);
     const status = err.statusCode || 500;
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, error: err.message, regretCheck: err.regretCheck });
   }
 });
 

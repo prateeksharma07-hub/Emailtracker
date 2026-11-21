@@ -13,13 +13,16 @@ import {
   RefreshCw,
   SlidersHorizontal,
   Mail,
-  KeyRound
+  KeyRound,
+  ShieldCheck,
+  Fingerprint
 } from 'lucide-react';
 
 export default function EmailList({ 
   emails = [], 
   selectedEmailId, 
   onSelectEmail, 
+  onInspectCheckpoint,
   searchQuery, 
   setSearchQuery, 
   priorityFilter, 
@@ -280,6 +283,35 @@ export default function EmailList({
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getCategoryBadgeClass(email.category)}`}>
                     {email.category}
                   </span>
+
+                  {email.shield_verdict === 'DETAINED' ? (
+                    <span 
+                      onClick={(e) => { e.stopPropagation(); onInspectCheckpoint && onInspectCheckpoint(email.id); }}
+                      className="flex items-center space-x-1 text-[10px] font-mono font-bold text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30 transition-colors"
+                      title="Quarantined by AI Firewall. Click to inspect in X-Ray Checkpoint."
+                    >
+                      <ShieldAlert className="w-3 h-3 text-rose-500" />
+                      <span>DETAINED</span>
+                    </span>
+                  ) : email.shield_verdict === 'SUSPICIOUS' ? (
+                    <span 
+                      onClick={(e) => { e.stopPropagation(); onInspectCheckpoint && onInspectCheckpoint(email.id); }}
+                      className="flex items-center space-x-1 text-[10px] font-mono font-bold text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30 transition-colors"
+                      title="Suspicious structural payload. Click to inspect in X-Ray Checkpoint."
+                    >
+                      <ShieldAlert className="w-3 h-3 text-amber-500" />
+                      <span>SUSPICIOUS</span>
+                    </span>
+                  ) : (
+                    <span 
+                      onClick={(e) => { e.stopPropagation(); onInspectCheckpoint && onInspectCheckpoint(email.id); }}
+                      className="hidden md:flex items-center space-x-1 text-[10px] font-mono font-bold text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors"
+                      title="Shield Verified. Click to view X-Ray scan."
+                    >
+                      <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                      <span>CLEARED</span>
+                    </span>
+                  )}
 
                   {email.priority_score >= 4 && (
                     <span className="hidden sm:flex items-center space-x-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">

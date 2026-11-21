@@ -3,6 +3,8 @@ import { db } from '../db/database.js';
 import { getAuthenticatedClientForUser } from './oauthService.js';
 import { analyzeEmail, fastClassifyEmail } from './groqService.js';
 import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from './sanitizationService.js';
+import { runShieldPipeline } from './shield/shieldPipeline.js';
+import { validateAiOutput } from './shield/outputValidator.js';
 
 // Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
 class ConcurrencyLimiter {
@@ -238,20 +240,81 @@ export async function syncGmailInbox(userId, options = {}) {
       }
     }
 
-    // 3. AI Triage: Bounded concurrency with Groq LPU
+    // 3. AI Triage & Shield Firewall
     for (let i = 0; i < parsedEmails.length; i++) {
       const parsedEmail = parsedEmails[i];
       let analysis;
 
-      // Deep Groq LPU analysis on top 5 newest emails via concurrency limiter
-      if (i < 5) {
-        try {
-          analysis = await aiLimiter.run(() => analyzeEmail(parsedEmail));
-        } catch (e) {
-          analysis = fastClassifyEmail(parsedEmail);
-        }
+      // A. Run Shield + X-Ray Pipeline
+      const shieldResult = await runShieldPipeline(parsedEmail);
+
+      // Persist Shield scan result
+      const scanId = 'scan_' + Math.random().toString(36).slice(2, 10);
+      try {
+        db.prepare(`
+          INSERT INTO shield_scans (
+            id, user_id, email_id, verdict, threat_score, layers_json,
+            hidden_segments_json, visible_text, ai_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          scanId,
+          userId,
+          parsedEmail.id,
+          shieldResult.verdict,
+          shieldResult.threatScore,
+          JSON.stringify(shieldResult.layers),
+          JSON.stringify(shieldResult.hiddenSegments),
+          shieldResult.visibleText,
+          shieldResult.aiText
+        );
+      } catch (scanErr) {
+        console.warn('[Shield Save Notice]', scanErr.message);
+      }
+
+      // B. Security-gated LLM processing
+      if (shieldResult.verdict === 'DETAINED') {
+        // Halt AI reply generation and apply containment template
+        analysis = {
+          category: 'Urgent',
+          priority_score: 5,
+          summary: `[FIREWALL DETAINED] Suspicious prompt-injection instructions detected in email payload. Autonomous AI summary halted to prevent prompt execution. Threat Score: ${shieldResult.threatScore}/100.`,
+          is_sensitive: 0,
+          tasks: [
+            {
+              task_title: `Verify authenticity of flagged email via phone or in-person channel`,
+              deadline_text: 'Immediate Security Review'
+            }
+          ],
+          reply_drafts: [
+            {
+              tone: 'Professional',
+              subject: `Re: ${parsedEmail.subject}`,
+              reply_body: 'Is mail ko kisi dusre channel (call/in-person) se verify karo. (Security Firewall Flagged: Hidden adversarial instructions detected).'
+            }
+          ]
+        };
       } else {
-        analysis = fastClassifyEmail(parsedEmail);
+        // For SUSPICIOUS emails, feed ONLY visibleText (hidden text stripped) to AI
+        const emailToAnalyze = shieldResult.verdict === 'SUSPICIOUS'
+          ? { ...parsedEmail, body_text: shieldResult.visibleText }
+          : parsedEmail;
+
+        // Deep Groq LPU analysis on top 5 newest emails via concurrency limiter
+        if (i < 5) {
+          try {
+            analysis = await aiLimiter.run(() => analyzeEmail(emailToAnalyze));
+          } catch (e) {
+            analysis = fastClassifyEmail(emailToAnalyze);
+          }
+        } else {
+          analysis = fastClassifyEmail(emailToAnalyze);
+        }
+
+        // Validate AI outputs against visible text
+        const outputValidation = validateAiOutput(analysis, shieldResult.visibleText);
+        if (!outputValidation.isValid) {
+          analysis.summary = `[FIREWALL ADVISORY: Potential Output Anomaly] ${analysis.summary}`;
+        }
       }
 
       if (analysis.is_sensitive) {
@@ -265,13 +328,14 @@ export async function syncGmailInbox(userId, options = {}) {
         INSERT INTO emails (
           id, user_id, thread_id, account_id, sender, sender_name, recipient, subject,
           body_text, body_html, snippet, date_received, is_read,
-          is_sensitive, sensitive_type, category, priority_score, summary, ai_processed
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_sensitive, sensitive_type, category, priority_score, summary, shield_verdict, ai_processed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           user_id = excluded.user_id,
           category = excluded.category,
           priority_score = excluded.priority_score,
-          summary = excluded.summary
+          summary = excluded.summary,
+          shield_verdict = excluded.shield_verdict
       `);
 
       insertEmail.run(
@@ -293,6 +357,7 @@ export async function syncGmailInbox(userId, options = {}) {
         analysis.category,
         analysis.priority_score,
         analysis.summary,
+        shieldResult.verdict,
         1
       );
 
@@ -368,6 +433,15 @@ export async function syncGmailInbox(userId, options = {}) {
   }
 }
 
+// Injectable draft creator for deterministic test suites (Rule 5: Zero external Gmail calls in tests)
+let customDraftSender = null;
+export function setGmailDraftSender(fn) {
+  customDraftSender = fn;
+}
+export function resetGmailDraftSender() {
+  customDraftSender = null;
+}
+
 /**
  * Creates an authorized draft in user's Gmail Drafts folder (using minimum permissions `gmail.compose`).
  * STRICT PRIVACY REQUIREMENT:
@@ -388,11 +462,40 @@ export async function createGmailDraft(draftId, userId, overrides = {}) {
     throw err;
   }
 
-  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+  // SECURITY GATE: Prevent approving drafts attached to DETAINED (prompt-injected) emails
+  const parentEmail = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+  if (parentEmail && parentEmail.shield_verdict === 'DETAINED') {
+    const err = new Error('SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.');
+    err.statusCode = 403;
+    throw err;
+  }
 
   const to = overrides.to_address || draft.to_address;
   const subject = overrides.subject || draft.subject;
   const body = overrides.reply_body || draft.reply_body;
+
+  // Mock test bypass if custom sender is registered
+  if (customDraftSender) {
+    const mockRes = await customDraftSender(draftId, userId, overrides);
+    db.prepare(`
+      UPDATE drafts 
+      SET status = 'APPROVED', 
+          approved_at = CURRENT_TIMESTAMP,
+          to_address = ?,
+          subject = ?,
+          reply_body = ?
+      WHERE id = ? AND user_id = ?
+    `).run(to, subject, body, draftId, userId);
+
+    return {
+      success: true,
+      mode: 'MOCK',
+      gmailDraftId: mockRes?.gmailDraftId || 'mock_draft_' + Date.now(),
+      message: 'Draft authorized and mocked for testing.'
+    };
+  }
+
+  const emailRecord = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
 
   const authData = await getAuthenticatedClientForUser(userId);
   const { oauth2Client, user } = authData;
@@ -464,5 +567,92 @@ export async function createGmailDraft(draftId, userId, overrides = {}) {
     mode: 'LIVE',
     gmailDraftId,
     message: 'Draft successfully pushed to your Gmail Drafts folder.'
+  };
+}
+
+/**
+ * Rescans an existing email with the Shield pipeline and persists findings
+ * 
+ * @param {string} emailId 
+ * @param {string} userId 
+ */
+export async function scanAndSaveShieldResult(emailId, userId) {
+  const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(emailId, userId);
+  if (!email) {
+    const err = new Error('Email not found or access denied.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const shieldResult = await runShieldPipeline(email);
+
+  // Check if scan record already exists
+  const existingScan = db.prepare('SELECT id FROM shield_scans WHERE email_id = ? AND user_id = ?').get(emailId, userId);
+  const scanId = existingScan?.id || ('scan_' + Math.random().toString(36).slice(2, 10));
+
+  if (existingScan) {
+    db.prepare(`
+      UPDATE shield_scans 
+      SET verdict = ?,
+          threat_score = ?,
+          layers_json = ?,
+          hidden_segments_json = ?,
+          visible_text = ?,
+          ai_text = ?,
+          created_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND user_id = ?
+    `).run(
+      shieldResult.verdict,
+      shieldResult.threatScore,
+      JSON.stringify(shieldResult.layers),
+      JSON.stringify(shieldResult.hiddenSegments),
+      shieldResult.visibleText,
+      shieldResult.aiText,
+      scanId,
+      userId
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO shield_scans (
+        id, user_id, email_id, verdict, threat_score, layers_json,
+        hidden_segments_json, visible_text, ai_text
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      scanId,
+      userId,
+      emailId,
+      shieldResult.verdict,
+      shieldResult.threatScore,
+      JSON.stringify(shieldResult.layers),
+      JSON.stringify(shieldResult.hiddenSegments),
+      shieldResult.visibleText,
+      shieldResult.aiText
+    );
+  }
+
+  // Update verdict on emails table
+  db.prepare('UPDATE emails SET shield_verdict = ? WHERE id = ? AND user_id = ?').run(
+    shieldResult.verdict,
+    emailId,
+    userId
+  );
+
+  // Log scan event
+  db.prepare(`
+    INSERT INTO activity_logs (id, user_id, event_type, severity, message, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    'log_' + Date.now(),
+    userId,
+    'SHIELD_SCAN',
+    shieldResult.verdict === 'DETAINED' ? 'SECURITY' : (shieldResult.verdict === 'SUSPICIOUS' ? 'WARNING' : 'INFO'),
+    `Shield scan completed: Verdict ${shieldResult.verdict} (Threat Score: ${shieldResult.threatScore}/100)`,
+    JSON.stringify({ emailId, verdict: shieldResult.verdict, threatScore: shieldResult.threatScore })
+  );
+
+  return {
+    scanId,
+    emailId,
+    ...shieldResult
   };
 }

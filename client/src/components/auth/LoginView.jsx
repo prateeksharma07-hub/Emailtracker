@@ -132,7 +132,7 @@ export default function LoginView() {
           </button>
         </div>
 
-        {/* Security / Privacy Trust Guarantee */}
+        {/* Security & Privacy Architecture */}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-400">
           <span className="flex items-center gap-1.5">
             <Lock className="w-3.5 h-3.5 text-emerald-400" />

@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS emails (
   category TEXT DEFAULT 'Other',             -- 'Urgent', 'Work', 'Meeting', 'Task', 'Personal', 'Newsletter', 'Other'
   priority_score INTEGER DEFAULT 3,          -- 1 (Low) to 5 (Critical)
   summary TEXT,
+  shield_verdict TEXT DEFAULT 'CLEARED',      -- 'CLEARED', 'SUSPICIOUS', 'DETAINED'
+  needs_reply INTEGER DEFAULT 0,              -- Autopilot: 1 if user needs to respond
+  needs_reply_reason TEXT,                    -- Autopilot: why a reply is required
+  needs_reply_urgency INTEGER DEFAULT 1,      -- Autopilot: 1 (Low) to 5 (Critical)
+  suggested_action TEXT,                      -- Autopilot: e.g. 'Confirm Meeting Time'
+  detected_language TEXT DEFAULT 'English',   -- 'English', 'Hindi', 'Hinglish'
+  is_follow_up_candidate INTEGER DEFAULT 0,   -- 1 if sent email awaiting reply
+  follow_up_due_date DATETIME,                -- When follow-up should trigger
   ai_processed INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -77,6 +85,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   subject TEXT NOT NULL,
   reply_body TEXT NOT NULL,
   tone TEXT DEFAULT 'Professional',          -- 'Professional', 'Concise', 'Detailed'
+  language TEXT DEFAULT 'English',           -- 'English', 'Hindi', 'Hinglish'
+  draft_type TEXT DEFAULT 'REPLY',           -- 'REPLY', 'FOLLOW_UP', 'CUSTOM'
   status TEXT DEFAULT 'PENDING_APPROVAL',    -- 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'REJECTED'
   approved_at DATETIME,
   sent_at DATETIME,
@@ -89,7 +99,7 @@ CREATE TABLE IF NOT EXISTS drafts (
 CREATE TABLE IF NOT EXISTS activity_logs (
   id TEXT PRIMARY KEY,
   user_id TEXT,
-  event_type TEXT NOT NULL,                  -- 'OAUTH_CONNECTED', 'SYNC_COMPLETED', 'PII_PROTECTED', 'AI_CLASSIFIED', 'DRAFT_APPROVED', 'EMAIL_SENT'
+  event_type TEXT NOT NULL,                  -- 'OAUTH_CONNECTED', 'SYNC_COMPLETED', 'PII_PROTECTED', 'AI_CLASSIFIED', 'DRAFT_APPROVED', 'SHIELD_SCAN'
   severity TEXT DEFAULT 'INFO',              -- 'INFO', 'WARNING', 'SECURITY', 'ERROR'
   message TEXT NOT NULL,
   metadata TEXT,                             -- JSON encoded metadata
@@ -108,4 +118,44 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS oauth_states (
   state TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL
+);
+
+-- 9. Shield + X-Ray Security Scans Table
+CREATE TABLE IF NOT EXISTS shield_scans (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  email_id TEXT NOT NULL,
+  verdict TEXT NOT NULL,                    -- 'CLEARED', 'SUSPICIOUS', 'DETAINED'
+  threat_score INTEGER NOT NULL DEFAULT 0,  -- 0 to 100
+  layers_json TEXT NOT NULL,                -- JSON: [{ name, status, score, findings }]
+  hidden_segments_json TEXT NOT NULL,       -- JSON: [{ type, text, reason }]
+  visible_text TEXT,
+  ai_text TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+);
+
+-- 10. Defensive Attack Lab Runs (Sandbox Simulations)
+CREATE TABLE IF NOT EXISTS lab_runs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  scenario TEXT NOT NULL,
+  results_json TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 11. Regret Shield Draft Quality & Tone Checks Table
+CREATE TABLE IF NOT EXISTS draft_checks (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  draft_id TEXT NOT NULL,
+  draft_hash TEXT NOT NULL,
+  severity TEXT NOT NULL,                    -- 'pass', 'review', 'high'
+  result_json TEXT NOT NULL,                 -- JSON: items, commitments, softer_rewrite (excerpts only, no full body duplicate)
+  acknowledged_at DATETIME,                  -- Timestamp when user acknowledged HIGH severity
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (draft_id) REFERENCES drafts(id) ON DELETE CASCADE
 );

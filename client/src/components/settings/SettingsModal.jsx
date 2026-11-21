@@ -381,17 +381,51 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
             <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
               <div className="flex items-center space-x-2 text-emerald-700 dark:text-emerald-300 font-bold text-xs">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                <span>Zero-Leak Sensitive Data Shield: ACTIVE</span>
+                <span>Zero-Leak Sensitive Data Shield & AI Firewall: ACTIVE</span>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                OTPs, banking details, card numbers, passwords, and reset links are detected by local regex before any prompt is created. Sensitive emails are never sent to external AI servers.
+                OTPs, passwords, and banking numbers are shielded before prompt creation. In addition, incoming HTML and Unicode structures are scrutinized for prompt injections and adversarial instruction overrides.
               </p>
+            </div>
+
+            {/* AI Email Firewall Card */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <ShieldAlert className="w-4 h-4 text-cyan-500" />
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Phase 1: Shield + X-Ray Firewall
+                  </h4>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  Active Defense
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                Features Layer 1 (Cheerio CSS hidden rule & Unicode steganography inspector), Layer 2 (Multilingual override pattern engine), Layer 3 (Groq Prompt Guard 2 transformer), and Layer 4 (Output hallucination validator).
+              </p>
+
+              <button
+                onClick={async () => {
+                  try {
+                    await apiFetch('/api/shield/seed-samples', { method: 'POST' });
+                    if (onDemoLoaded) onDemoLoaded();
+                    alert('Sample prompt injection test vectors successfully loaded into your inbox!');
+                  } catch (err) {
+                    alert('Failed to load samples.');
+                  }
+                }}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-colors cursor-pointer"
+              >
+                <span>Load 40 Shield Benchmark Vectors</span>
+              </button>
             </div>
 
             {/* Security Rules Breakdown */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-3">
               <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Multi-User SaaS Security Guarantees
+                Multi-User SaaS Security Architecture
               </h4>
 
               <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">

@@ -22,6 +22,9 @@ import draftsRouter from './routes/drafts.js';
 import analyticsRouter from './routes/analytics.js';
 import logsRouter from './routes/logs.js';
 import tasksRouter from './routes/tasks.js';
+import shieldRouter from './routes/shield.js';
+import autopilotRouter from './routes/autopilot.js';
+import attackLabRouter from './routes/attackLab.js';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -113,6 +116,9 @@ app.use('/api/drafts', draftsRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/logs', logsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api/shield', shieldRouter);
+app.use('/api/autopilot', autopilotRouter);
+app.use('/api/attack-lab', attackLabRouter);
 
 // Serve client in production when dist exists
 const clientDistPath = path.resolve(__dirname, '..', 'client', 'dist');
@@ -135,12 +141,18 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`===============================================`);
-  console.log(`🧠 MAILMIND AI Multi-User Server running on port ${PORT}`);
-  console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
-  console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
-  console.log(`🔒 AES-256-GCM Token Encryption: Active`);
-  console.log(`===============================================`);
-});
+export { app };
+export default app;
+
+const isMainModule = Boolean(process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]));
+if (isMainModule && process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`===============================================`);
+    console.log(`🧠 MAILMIND AI Multi-User Server running on port ${PORT}`);
+    console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
+    console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
+    console.log(`🔒 AES-256-GCM Token Encryption: Active`);
+    console.log(`===============================================`);
+  });
+}
