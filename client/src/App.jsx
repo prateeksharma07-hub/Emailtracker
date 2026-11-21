@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useTheme } from './context/ThemeContext';
 import { apiFetch } from './utils/api';
-import LoginView from './components/auth/LoginView';
+
+// Code-split landing page so main authenticated app bundle remains lean
+const LoginView = React.lazy(() => import('./components/auth/LoginView'));
 import { 
   Inbox, 
   Sparkles, 
@@ -242,9 +244,18 @@ export default function App() {
     );
   }
 
-  // Unauthenticated State: Show Dedicated Google Login View
+  // Unauthenticated State: Show Dedicated Google Login / Landing View (Code-Split)
   if (!isAuthenticated || !user) {
-    return <LoginView />;
+    return (
+      <React.Suspense fallback={
+        <div className="min-h-screen bg-[#080C14] flex flex-col items-center justify-center text-white space-y-3 font-mono text-xs">
+          <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400">Loading MailMind AI Engine...</p>
+        </div>
+      }>
+        <LoginView />
+      </React.Suspense>
+    );
   }
 
   const categories = [
