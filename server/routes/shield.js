@@ -34,6 +34,17 @@ router.get('/emails/:id', async (req, res) => {
     const layers = typeof scan.layers_json === 'string' ? JSON.parse(scan.layers_json) : (scan.layers || []);
     const hiddenSegments = typeof scan.hidden_segments_json === 'string' ? JSON.parse(scan.hidden_segments_json) : (scan.hiddenSegments || []);
 
+    // Additive sender profile & header meta
+    let headersMeta = null;
+    let senderProfile = null;
+    try {
+      headersMeta = db.prepare('SELECT * FROM email_headers_meta WHERE email_id = ? AND user_id = ?').get(emailId, userId) || null;
+      const senderEmail = headersMeta?.from_addr || email.sender;
+      if (senderEmail) {
+        senderProfile = db.prepare('SELECT * FROM sender_profiles WHERE user_id = ? AND sender_email = ?').get(userId, senderEmail) || null;
+      }
+    } catch (ignoreErr) {}
+
     res.json({
       success: true,
       scan: {
@@ -47,6 +58,8 @@ router.get('/emails/:id', async (req, res) => {
         aiText: scan.ai_text !== undefined ? scan.ai_text : scan.aiText,
         layers,
         hiddenSegments,
+        senderProfile,
+        headersMeta,
         createdAt: scan.created_at || new Date().toISOString()
       }
     });
