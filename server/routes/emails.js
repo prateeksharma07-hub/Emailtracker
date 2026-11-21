@@ -66,10 +66,20 @@ router.get('/', (req, res) => {
     const emailsWithMeta = emails.map(email => {
       const tasks = db.prepare('SELECT * FROM tasks WHERE email_id = ? AND user_id = ?').all(email.id, userId);
       const draftsCount = db.prepare('SELECT COUNT(*) as count FROM drafts WHERE email_id = ? AND user_id = ?').get(email.id, userId)?.count || 0;
+      
+      let senderTrust = null;
+      try {
+        const profile = db.prepare('SELECT trust_state FROM sender_profiles WHERE user_id = ? AND (sender_email = ? OR sender_email = ?)').get(userId, email.sender, email.sender?.toLowerCase());
+        if (profile) {
+          senderTrust = profile.trust_state;
+        }
+      } catch (e) {}
+
       return {
         ...email,
         tasks,
-        drafts_count: draftsCount
+        drafts_count: draftsCount,
+        sender_trust: senderTrust
       };
     });
 

@@ -1,0 +1,45 @@
+{
+  "weights": {
+    "first_time_sender": 5,
+    "reply_to_mismatch": 15,
+    "auth_spf_fail": 10,
+    "auth_dkim_fail": 10,
+    "auth_dmarc_fail": 30,
+    "punycode_domain": 20,
+    "lookalike_domain": 35,
+    "display_name_spoof": 40,
+    "risky_ask_with_anomaly": 50,
+    "sender_trust_contribution": 0.30
+  },
+  "thresholds": {
+    "suspicious": 25,
+    "detained": 60
+  },
+  "homoglyphs": {
+    "1": "l",
+    "0": "o",
+    "rn": "m",
+    "vv": "w"
+  },
+  "freeMailAllowlist": [
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "yahoo.co.in",
+    "yahoo.co.uk",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "msn.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "mail.com",
+    "proton.me",
+    "protonmail.com",
+    "zoho.com",
+    "aol.com",
+    "gmx.com",
+    "yandex.com"
+  ]
+}

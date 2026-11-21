@@ -19,7 +19,12 @@ import {
   ChevronRight,
   Database,
   Lock,
-  ArrowRight
+  ArrowRight,
+  UserCheck,
+  Check,
+  Ban,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 
@@ -86,7 +91,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
       const res = await apiFetch(`/api/shield/emails/${emailId}`);
       const data = await res.json();
       if (data.success) {
-        setScanData(data);
+        setScanData(data.scan || data);
       } else {
         setErrorNotice(data.error || 'Failed to load X-Ray scan');
       }
@@ -97,6 +102,24 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
       setIsLoadingScan(false);
     }
   }, []);
+
+  // Update sender trust state directly from Checkpoint view
+  const handleUpdateSenderTrust = async (nextState) => {
+    const profile = scanData?.senderProfile;
+    if (!profile || !profile.id) return;
+    try {
+      const res = await apiFetch(`/api/senders/${profile.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trust_state: nextState })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchScanDetail(selectedEmailId);
+      }
+    } catch (err) {
+      console.error('Failed to update sender trust state', err);
+    }
+  };
 
   useEffect(() => {
     fetchEmailsList();
@@ -606,7 +629,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     Defensive Inspection Layers
                   </span>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                     {(scanData.layers || []).map((layer, idx) => {
                       const isDanger = layer.score >= 50 || layer.status === 'danger';
                       const isWarn = (layer.score > 0 && layer.score < 50) || layer.status === 'warning';
@@ -650,6 +673,127 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     })}
                   </div>
                 </div>
+
+                {/* Layer 4: Sender Trust & Authentication Card */}
+                {(() => {
+                  const layer4 = (scanData.layers || []).find(l => l.name?.includes('Sender') || l.label);
+                  const profile = scanData.senderProfile;
+                  const headersMeta = scanData.headersMeta;
+                  const senderEmail = headersMeta?.from_addr || scanData.email?.sender || scanData.sender;
+                  const trustState = profile?.trust_state || 'unknown';
+
+                  return (
+                    <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/60 dark:border-white/10">
+                        <div className="flex items-center space-x-2">
+                          <UserCheck className="w-4 h-4 text-emerald-500" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">
+                            Layer 4: Sender Trust & Identity Memory
+                          </span>
+                        </div>
+
+                        {/* Quick Trust Action Buttons */}
+                        {profile?.id && (
+                          <div className="flex items-center space-x-1.5">
+                            {trustState !== 'trusted' && (
+                              <button
+                                onClick={() => handleUpdateSenderTrust('trusted')}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors cursor-pointer"
+                              >
+                                Mark Trusted
+                              </button>
+                            )}
+                            {trustState !== 'blocked' && (
+                              <button
+                                onClick={() => handleUpdateSenderTrust('blocked')}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors cursor-pointer"
+                              >
+                                Block Sender
+                              </button>
+                            )}
+                            {trustState !== 'unknown' && (
+                              <button
+                                onClick={() => handleUpdateSenderTrust('unknown')}
+                                className="px-2 py-1 rounded-lg text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer"
+                                title="Reset to unknown"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Details Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        {/* Sender Label */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Identity Status</span>
+                          <div>
+                            <span className={`inline-block font-mono font-bold px-2 py-0.5 rounded text-[11px] ${
+                              layer4?.label === 'blocked' || trustState === 'blocked'
+                                ? 'bg-rose-500/20 text-rose-500'
+                                : layer4?.label === 'trusted' || trustState === 'trusted'
+                                  ? 'bg-emerald-500/20 text-emerald-500'
+                                  : 'bg-amber-500/20 text-amber-500'
+                            }`}>
+                              {layer4?.label ? layer4.label.replace(/_/g, ' ').toUpperCase() : trustState.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* SPF / DKIM / DMARC Authentication */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Google MTA Auth</span>
+                          <div className="flex items-center space-x-1 font-mono text-[11px]">
+                            <span className={`px-1.5 py-0.2 rounded font-bold ${
+                              headersMeta?.spf === 'pass' ? 'bg-emerald-500/20 text-emerald-400' : headersMeta?.spf === 'fail' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-500/20 text-slate-400'
+                            }`}>SPF:{headersMeta?.spf || 'none'}</span>
+                            <span className={`px-1.5 py-0.2 rounded font-bold ${
+                              headersMeta?.dkim === 'pass' ? 'bg-emerald-500/20 text-emerald-400' : headersMeta?.dkim === 'fail' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-500/20 text-slate-400'
+                            }`}>DKIM:{headersMeta?.dkim || 'none'}</span>
+                            <span className={`px-1.5 py-0.2 rounded font-bold ${
+                              headersMeta?.dmarc === 'pass' ? 'bg-emerald-500/20 text-emerald-400' : headersMeta?.dmarc === 'fail' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-500/20 text-slate-400'
+                            }`}>DMARC:{headersMeta?.dmarc || 'none'}</span>
+                          </div>
+                        </div>
+
+                        {/* History Telemetry */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Relationship Telemetry</span>
+                          <p className="font-mono text-slate-600 dark:text-slate-300">
+                            Received: <strong>{profile?.received_count || 1}</strong> | Sent to: <strong>{profile?.sent_to_count || 0}</strong>
+                          </p>
+                        </div>
+
+                        {/* Sender Domain */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Sender Domain</span>
+                          <p className="font-mono text-slate-600 dark:text-slate-300 truncate">
+                            {profile?.sender_domain || senderEmail?.split('@')[1] || 'Unknown'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Findings */}
+                      {layer4?.findings && layer4.findings.length > 0 && (
+                        <div className="pt-2 border-t border-slate-200/40 dark:border-white/5 space-y-1">
+                          <span className="text-[10px] font-mono uppercase font-bold text-slate-400">Layer 4 Findings:</span>
+                          {layer4.findings.map((f, i) => (
+                            <p key={i} className="text-xs font-mono text-rose-500 dark:text-rose-400">
+                              • {f}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Honest Disclaimer */}
+                      <p className="text-[10px] text-slate-400 font-mono italic">
+                        * Best-effort identity heuristic. Trusted status increases relationship confidence but never exempts emails from prompt injection quarantine.
+                      </p>
+                    </div>
+                  );
+                })()}
 
               </div>
 

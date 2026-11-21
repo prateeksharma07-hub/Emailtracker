@@ -268,6 +268,16 @@ export default function EmailList({
                       <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
                         {email.sender_name || email.sender}
                       </span>
+                      {email.sender_trust === 'blocked' && (
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20" title="Blocked Sender">
+                          Blocked
+                        </span>
+                      )}
+                      {email.sender_trust === 'trusted' && (
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" title="Trusted Contact">
+                          Trusted
+                        </span>
+                      )}
                       {email.is_read === 0 && (
                         <span className="w-2 h-2 rounded-full bg-violet-600 flex-shrink-0" title="Unread" />
                       )}
