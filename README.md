@@ -194,6 +194,25 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
   - `attackLab.test.js`: 5/5 tests (presets, canary detection HIJACKED vs HELD, zero real-inbox leakage, lab_runs isolation).
 - **Email Analytics Ablation Visualization**: Displays multi-layer ablation progression (L1 -> L1+L2 -> L1+L2+L3 -> Full Defense) with transparent best-effort security disclosures.
 
+### 🛡️ 4. Regret Shield: Pre-Approval Quality & Tone Safeguard
+- **Objective**: Intercepts embarrassing mistakes and risky outgoing content before user authorization.
+- **Deterministic Checks (Zero-LLM)**:
+  - *Attachment Reminder*: Warns when draft mentions attachments (`PFA`, `attached`, `attach kar diya`) as MailMind creates drafts without attaching files.
+  - *Unfilled Placeholders*: Flags leftover template markers (`[Your Name]`, `[DATE]`, `XXXX`, `TODO`, `{{...}}`) with `HIGH` severity.
+  - *Outgoing Sensitive Credentials*: Reuses local regex shielding + Indian national patterns (12-digit Aadhaar, 10-char PAN `[A-Z]{5}[0-9]{4}[A-Z]{1}`, Bank A/C numbers, Passwords/OTPs) with `HIGH` severity. Excerpts are masked so plain secrets are never stored.
+  - *Recipient Hazards*: Identifies Reply-To vs From domain mismatches, Reply-All hazards (> 5 recipients), and newly introduced external recipient domains with `MEDIUM` severity.
+  - *Greeting Mismatches*: Detects when greeting name does not match any sender or recipient name with `LOW` severity.
+- **LLM Tone & Commitment Analysis (Groq LPU)**:
+  - Identifies harsh, passive-aggressive, or overly casual phrasing.
+  - Highlights binding commitments and promises (deadlines, payments, attendance) so users know what they are agreeing to.
+  - Provides diplomatic softer rewrites grounded in original context (strips any newly hallucinated URLs, emails, or phone numbers).
+  - Fail-safe fallback: If Groq times out or fails, deterministic checks remain fully active without crashing.
+- **Approval Gate Guard (409 Conflict)**:
+  - If composite severity is `HIGH`, approval is blocked with HTTP 409 unless the user explicitly checks the acknowledgment box (`acknowledged: true`).
+  - Caches results by SHA-256 draft hash in the `draft_checks` table.
+- **Feature Flag Controlled**:
+  - Gated behind `FEATURE_REGRET_SHIELD` (default: `true`). Setting to `false` completely bypasses the gate, reverting behavior seamlessly.
+
 ---
 
 ## 🔒 Security & Privacy Guarantees
@@ -203,6 +222,7 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 | **Multi-User Data Isolation** | Enforced via `WHERE user_id = req.user.id` on all queries and inserts. |
 | **Token Encryption** | AES-256-GCM with dynamic IV per token and authentication tags. |
 | **AI Email Firewall** | Multi-layer screening (HTML/CSS tricks, Unicode tags, Groq Prompt Guard 2). |
+| **Regret Shield** | Pre-approval check for attachments, placeholders, PAN/Aadhaar, recipient risks, tone risks, and explicit 409 acknowledgment. |
 | **Zero Raw HTML Injection** | Plaintext React tokenization; no `dangerouslySetInnerHTML` for emails. |
 | **Zero Auto-Send** | Only creates drafts upon explicit human approval. |
 | **Session Security** | `httpOnly`, `sameSite=lax`, 7-day TTL with database session revocation. |
