@@ -1,6 +1,7 @@
 import { inspectHtmlContent } from './htmlInspector.js';
 import { scanOverridePatterns } from './overridePatterns.js';
 import { runPromptGuardScan } from './promptGuard.js';
+import { evaluateSenderTrust } from './senderTrust.js';
 
 /**
  * Shield Pipeline Orchestrator (Phase 1: Shield + X-Ray)
@@ -48,7 +49,7 @@ function isBenignPreheader(hiddenSegments = []) {
  * @param {object} email - { body_html, body_text, snippet, subject, sender }
  * @returns {Promise<object>} Comprehensive scan result with verdict, score, layers, and X-Ray text
  */
-export async function runShieldPipeline(email = {}) {
+export async function runShieldPipeline(email = {}, injectedContext = null) {
   try {
     const rawHtml = email.body_html || email.bodyHtml || '';
     const rawText = email.body_text || email.bodyText || email.snippet || '';
@@ -67,6 +68,13 @@ export async function runShieldPipeline(email = {}) {
     // If hidden text exists, scan aiText; otherwise scan visibleText
     const textToGuardScan = hiddenSegments.length > 0 ? aiText : visibleText;
     const layer3Result = await runPromptGuardScan(textToGuardScan);
+
+    // --- LAYER 4: Sender Trust & Identity Memory (if feature flag active) ---
+    let layer4Result = null;
+    const isSenderTrustEnabled = process.env.FEATURE_SENDER_TRUST !== 'false';
+    if (isSenderTrustEnabled) {
+      layer4Result = evaluateSenderTrust(email, injectedContext);
+    }
 
     // --- LAYER 5: Composite Policy Engine ---
     // Check for newsletter preheaders
@@ -91,14 +99,15 @@ export async function runShieldPipeline(email = {}) {
       compositeScore = (compositeScore / 0.80);
     }
 
+    // Layer 4 (Sender Trust contribution): adds risk if anomaly detected
+    if (layer4Result && !layer4Result.noSenderContext && !layer4Result.unavailable && layer4Result.score > 0) {
+      compositeScore += (layer4Result.score * 0.30);
+    }
+
     const threatScore = Math.min(100, Math.round(compositeScore));
 
     // VERDICT DECISION RULES:
-    // 1. High Prompt Guard score (>= 80) OR Direct Override Language (>= 45) => DETAINED
-    // 2. Hidden text + Override Pattern (>= 25) => DETAINED
-    // 3. Hidden text alone without override keywords => SUSPICIOUS (not detained, tolerates newsletters)
-    // 4. Moderate override language without hidden text => SUSPICIOUS
-    // 5. Score < 25 and no adversarial findings => CLEARED
+    // Baseline detection rules
     let verdict = 'CLEARED';
 
     if (layer2Result.score >= 45 || layer3Result.score >= 80) {
@@ -113,32 +122,59 @@ export async function runShieldPipeline(email = {}) {
       verdict = 'CLEARED';
     }
 
+    // LAYER 4 INVARIANTS:
+    // - Layer only increases risk, never decreases (trusted sender does not downgrade existing DETAINED).
+    // - Blocked sender OR (spoof/lookalike/auth_fail + risky_ask) => DETAINED.
+    // - Sender anomaly alone without risky ask => MAX SUSPICIOUS (never DETAINED).
+    if (layer4Result) {
+      if (layer4Result.status === 'DETAINED') {
+        verdict = 'DETAINED';
+      } else if (layer4Result.status === 'SUSPICIOUS' && verdict === 'CLEARED') {
+        verdict = 'SUSPICIOUS';
+      }
+    }
+
+    const layers = [
+      {
+        name: 'HTML & Structure Inspector',
+        status: layer1Result.status,
+        score: layer1Result.score,
+        findings: layer1Result.findings
+      },
+      {
+        name: 'Override Pattern Engine',
+        status: layer2Result.status,
+        score: layer2Result.score,
+        findings: layer2Result.findings
+      },
+      {
+        name: 'Groq Prompt Guard 2',
+        status: layer3Result.status,
+        score: layer3Result.score,
+        findings: layer3Result.findings
+      }
+    ];
+
+    if (layer4Result) {
+      layers.push({
+        name: layer4Result.name || 'Sender Trust & Identity Memory',
+        status: layer4Result.status,
+        score: layer4Result.score,
+        findings: layer4Result.findings,
+        label: layer4Result.label,
+        profileSummary: layer4Result.profileSummary,
+        unavailable: Boolean(layer4Result.unavailable),
+        noSenderContext: Boolean(layer4Result.noSenderContext)
+      });
+    }
+
     return {
       verdict,
       threatScore,
       visibleText,
       aiText,
       hiddenSegments,
-      layers: [
-        {
-          name: 'HTML & Structure Inspector',
-          status: layer1Result.status,
-          score: layer1Result.score,
-          findings: layer1Result.findings
-        },
-        {
-          name: 'Override Pattern Engine',
-          status: layer2Result.status,
-          score: layer2Result.score,
-          findings: layer2Result.findings
-        },
-        {
-          name: 'Groq Prompt Guard 2',
-          status: layer3Result.status,
-          score: layer3Result.score,
-          findings: layer3Result.findings
-        }
-      ]
+      layers
     };
   } catch (err) {
     console.error('[Shield Pipeline Error] Fail-closed safeguard engaged:', err.message);
