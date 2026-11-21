@@ -11,25 +11,62 @@ import { analyzeSensitivity } from '../sanitizationService.js';
  * 5. Greeting mismatch (greeting name does not match sender/recipient names).
  */
 
+// Verhoeff algorithm multiplication table (d)
+const VERHOEFF_D = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+  [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+  [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+  [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
+  [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+  [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
+  [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+  [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+  [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+];
+
+// Verhoeff algorithm permutation table (p)
+const VERHOEFF_P = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+  [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+  [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+  [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+  [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+  [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
+  [7, 0, 4, 6, 9, 1, 3, 2, 5, 8]
+];
+
+/**
+ * Validates a 12-digit Indian Aadhaar number using the Verhoeff checksum algorithm
+ * 
+ * @param {string|number} numStr 
+ * @returns {boolean}
+ */
+export function validateVerhoeff(numStr) {
+  const digits = String(numStr).replace(/\D/g, '').split('').map(Number);
+  if (digits.length !== 12) return false;
+  // Aadhaar numbers start with 2-9
+  if (digits[0] < 2) return false;
+  digits.reverse();
+  let c = 0;
+  for (let i = 0; i < digits.length; i++) {
+    c = VERHOEFF_D[c][VERHOEFF_P[i % 8][digits[i]]];
+  }
+  return c === 0;
+}
+
 const ATTACHMENT_PATTERNS = [
   /\b(?:please\s+find\s+attached|find\s+attached|pfa|attached|attaching|attachment|attachments|attach\s+kar\s+diya|enclosed|see\s+attached)\b/i
 ];
 
-const PLACEHOLDER_PATTERNS = [
-  /\[(?:your\s+name|name|date|insert\s+[^\]]+|company|link|title|phone|email|todo|xyz|abc|amount|client)\]/i,
-  /\b(?:TODO|FIXME|XXXX+)\b/,
-  /\{\{[^}]+\}\}/,
-  /<(?:name|date|company|link|insert\s+[^>]+)>/i
-];
+const BANK_CONTEXT_REGEX = /\b(?:account|a\/c|acc(?:\s*no\.?)?|acct|bank|ifsc|beneficiary|transfer\s+to)\b/i;
+const NON_BANK_PREFIX_REGEX = /\b(?:order|invoice|tracking|shipment|receipt|ticket|waybill)\s*(?:id|#|no\.?|number)?\s*[:#-]?\s*$/i;
 
-// India & International Sensitive Data Patterns
+// Sensitive Patterns for PAN, Passwords, OTP
 const SENSITIVE_PATTERNS = {
-  // 12-digit Aadhaar number (does not start with 0 or 1)
-  AADHAAR: /\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b/,
   // Indian PAN (5 letters, 4 digits, 1 letter)
   PAN: /\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b/,
-  // Bank Account numbers (9 to 18 digits) near financial words
-  BANK_ACCOUNT: /(?:account|a\/c|acct|bank|ifsc|transfer\s+to|beneficiary)\s*(?:no\.?|number)?\s*[:\s-]*\b(\d{9,18})\b/i,
   // Passwords / Passcodes in outgoing text
   PASSWORDS: /(?:password|passwd|secret|passcode|pin)\s*[:=]\s*([^\s,;]+)/i,
   // One-Time Passwords / Verification Codes
@@ -98,29 +135,113 @@ export function runDeterministicChecks(draftText = '', context = {}) {
   }
 
   // 2. Unfilled Placeholders Check
-  for (const regex of PLACEHOLDER_PATTERNS) {
-    const match = text.match(regex);
-    if (match) {
+  // A. [placeholder]
+  const bracketMatch = text.match(/\[(?:your\s+name|name|date|insert\s+[^\]]+|company|link|title|phone|email|todo|xyz|abc|amount|client)\]/i);
+  if (bracketMatch) {
+    items.push({
+      type: 'unfilled_placeholder',
+      severity: 'HIGH',
+      excerpt: bracketMatch[0],
+      message: `Draft contains unfilled placeholder "${bracketMatch[0]}". Please fill in or remove before authorizing.`
+    });
+  }
+
+  // B. {{mustache}}
+  if (!items.some(it => it.type === 'unfilled_placeholder')) {
+    const mustacheMatch = text.match(/\{\{[^}]+\}\}/);
+    if (mustacheMatch) {
       items.push({
         type: 'unfilled_placeholder',
         severity: 'HIGH',
-        excerpt: match[0],
-        message: `Draft contains unfilled placeholder "${match[0]}". Please fill in or remove before authorizing.`
+        excerpt: mustacheMatch[0],
+        message: `Draft contains unfilled placeholder "${mustacheMatch[0]}". Please fill in or remove before authorizing.`
+      });
+    }
+  }
+
+  // C. <placeholder> (strictly placeholder words to avoid matching email addresses or HTML tags)
+  if (!items.some(it => it.type === 'unfilled_placeholder')) {
+    const angleMatch = text.match(/<(?:name|date|company|your[^>]*|client|amount|link|insert[^>]*)>/i);
+    if (angleMatch) {
+      items.push({
+        type: 'unfilled_placeholder',
+        severity: 'HIGH',
+        excerpt: angleMatch[0],
+        message: `Draft contains unfilled placeholder "${angleMatch[0]}". Please fill in or remove before authorizing.`
+      });
+    }
+  }
+
+  // D. Standalone uppercase TODO or FIXME
+  if (!items.some(it => it.type === 'unfilled_placeholder')) {
+    const todoMatch = text.match(/\b(?:TODO|FIXME)\b/);
+    if (todoMatch) {
+      items.push({
+        type: 'unfilled_placeholder',
+        severity: 'HIGH',
+        excerpt: todoMatch[0],
+        message: `Draft contains unfilled placeholder "${todoMatch[0]}". Please fill in or remove before authorizing.`
+      });
+    }
+  }
+
+  // E. Standalone XXXX+ (skips masked digits like 'XXXX 1234' or '1234 XXXX')
+  if (!items.some(it => it.type === 'unfilled_placeholder')) {
+    const xRegex = /\b[Xx]{4,}\b/g;
+    let xMatch;
+    while ((xMatch = xRegex.exec(text)) !== null) {
+      const start = xMatch.index;
+      const end = start + xMatch[0].length;
+      const pre = text.slice(Math.max(0, start - 10), start);
+      const post = text.slice(end, Math.min(text.length, end + 10));
+
+      if (/\d+\s*[-–—]?\s*$/.test(pre) || /^[-–—\s]*\d+/.test(post)) {
+        continue;
+      }
+
+      items.push({
+        type: 'unfilled_placeholder',
+        severity: 'HIGH',
+        excerpt: xMatch[0],
+        message: `Draft contains unfilled placeholder "${xMatch[0]}". Please fill in or remove before authorizing.`
       });
       break;
     }
   }
 
   // 3. Outgoing Sensitive Data Check (PAN, Aadhaar, Bank A/C, Passwords, OTP)
-  // A. Check Aadhaar
-  const aadhaarMatch = text.match(SENSITIVE_PATTERNS.AADHAAR);
-  if (aadhaarMatch) {
-    items.push({
-      type: 'outgoing_sensitive_data',
-      severity: 'HIGH',
-      excerpt: maskSecret('AADHAAR', aadhaarMatch[0]),
-      message: 'High-risk: Aadhaar number detected in draft text. Do not transmit identity numbers in plain email.'
-    });
+  // A. Check Aadhaar: 12-digit number starting with 2-9, with valid Verhoeff checksum.
+  // Must NOT match Indian mobile numbers (+91..., 919...) or invalid checksums.
+  const aadhaarRegex = /(?<!\d)(?:[2-9]\d{3}[\s-]?[0-9]{4}[\s-]?[0-9]{4})(?!\d)/g;
+  let aadhaarMatch;
+  while ((aadhaarMatch = aadhaarRegex.exec(text)) !== null) {
+    const rawMatch = aadhaarMatch[0];
+    const matchStart = aadhaarMatch.index;
+
+    // Skip if preceded by '+' (international phone prefix e.g. +91)
+    const prefix = text.slice(Math.max(0, matchStart - 6), matchStart);
+    if (/\+\s*(?:91\s*)?$/.test(prefix)) {
+      continue;
+    }
+
+    const digits = rawMatch.replace(/\D/g, '');
+    if (digits.length !== 12) continue;
+
+    // Disregard if it starts with 91 followed by Indian mobile (6, 7, 8, 9)
+    if (/^91[6-9]\d{9}$/.test(digits)) {
+      continue;
+    }
+
+    // Must satisfy Verhoeff checksum
+    if (validateVerhoeff(digits)) {
+      items.push({
+        type: 'outgoing_sensitive_data',
+        severity: 'HIGH',
+        excerpt: maskSecret('AADHAAR', rawMatch),
+        message: 'High-risk: Aadhaar number detected in draft text. Do not transmit identity numbers in plain email.'
+      });
+      break;
+    }
   }
 
   // B. Check PAN
@@ -134,15 +255,39 @@ export function runDeterministicChecks(draftText = '', context = {}) {
     });
   }
 
-  // C. Check Bank Account
-  const bankMatch = text.match(SENSITIVE_PATTERNS.BANK_ACCOUNT);
-  if (bankMatch) {
-    items.push({
-      type: 'outgoing_sensitive_data',
-      severity: 'HIGH',
-      excerpt: maskSecret('BANK_ACCOUNT', bankMatch[1] || bankMatch[0]),
-      message: 'High-risk: Bank account number detected in draft text.'
-    });
+  // C. Check Bank Account (9-18 digits within ±40 chars of financial/account keywords)
+  const bankCandidateRegex = /(?<!\d)(\d{9,18})(?!\d)/g;
+  let bankMatch;
+  while ((bankMatch = bankCandidateRegex.exec(text)) !== null) {
+    const rawNumber = bankMatch[1];
+    const start = bankMatch.index;
+    const end = start + rawNumber.length;
+
+    // Window of ±40 characters around candidate
+    const windowStart = Math.max(0, start - 40);
+    const windowEnd = Math.min(text.length, end + 40);
+    const windowText = text.slice(windowStart, windowEnd);
+
+    // If immediately preceded by order/tracking/invoice, skip
+    const immediatePrefix = text.slice(windowStart, start);
+    if (NON_BANK_PREFIX_REGEX.test(immediatePrefix)) {
+      continue;
+    }
+
+    // Skip if it is already verified as Aadhaar
+    if (rawNumber.length === 12 && validateVerhoeff(rawNumber)) {
+      continue;
+    }
+
+    if (BANK_CONTEXT_REGEX.test(windowText)) {
+      items.push({
+        type: 'outgoing_sensitive_data',
+        severity: 'HIGH',
+        excerpt: maskSecret('BANK_ACCOUNT', rawNumber),
+        message: 'High-risk: Bank account number detected in draft text.'
+      });
+      break;
+    }
   }
 
   // D. Check Passwords / OTP

@@ -6,7 +6,7 @@ MAILMIND AI is an autonomous, privacy-first, multi-user email intelligence SaaS 
 
 ## 🌟 Key Features & Multi-User Architecture
 
-- **100% Multi-User Isolation**: Every database query (`emails`, `tasks`, `drafts`, `activity_logs`) enforces `WHERE user_id = req.user.id`. No user can access or view another user's correspondence.
+- **Strict Multi-User Tenant Isolation**: Every database query (`emails`, `tasks`, `drafts`, `activity_logs`, `draft_checks`) enforces `WHERE user_id = req.user.id`. No user can access or view another user's correspondence.
 - **Hardware-Grade AES-256-GCM Token Encryption**: Google OAuth tokens (`access_token`, `refresh_token`) are encrypted with AES-256-GCM before storage in SQLite. Plaintext tokens are never stored, logged, or sent to the frontend.
 - **7-Day HttpOnly Cookie Sessions**: Seamless authentication using secure `mailmind_session` cookies with automated expiry and single-use CSRF OAuth state protection.
 - **Dedicated Google Login Landing**: Logged-out users are greeted by a sleek landing interface; authenticated users access their private workspace with avatar, name, and email in the header.
@@ -184,22 +184,27 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 - **Zero Real-Inbox Contamination**: Lab runs are completely isolated and recorded strictly in the `lab_runs` telemetry table.
 
 ### 📊 3. Automated Test Infrastructure & Ablation Analytics
-- **Deterministic Offline Testing**: Tests use injectable provider interfaces (`services/llm/client.js`), ensuring deterministic evaluation without external API rate limits.
-- **24 Comprehensive Automated Tests**:
+- **Deterministic Offline Testing**: Tests use injectable provider interfaces (`services/llm/client.js`), ensuring deterministic evaluation without external API rate limits or network dependencies.
+- **37 Comprehensive Automated Tests**:
   ```bash
   npm test --prefix server
   ```
   - `isolation.test.js`: 10/10 tests (401 unauth, cross-user email/task/draft/shield isolation, IDOR prevention).
   - `autopilot.test.js`: 9/9 tests (needs-reply detection, Hinglish matching, 3 tones, DETAINED block 403, IDOR 404, follow-up detection).
   - `attackLab.test.js`: 5/5 tests (presets, canary detection HIJACKED vs HELD, zero real-inbox leakage, lab_runs isolation).
-- **Email Analytics Ablation Visualization**: Displays multi-layer ablation progression (L1 -> L1+L2 -> L1+L2+L3 -> Full Defense) with transparent best-effort security disclosures.
+  - `regretShield.test.js`: 13/13 tests (Aadhaar Verhoeff precision, bank account context, placeholder precision, domain mismatch, tone parsing fail-safes, ungrounded rewrite stripping, draft hashing & caching, 409 approval gate, 403 detained gate, IDOR 404).
+- **Synthetic Benchmark Suite (`npm run shield:bench`)**:
+  - Evaluates 100 synthetic test fixtures (50 adversarial prompt-injection attack vectors, 50 legitimate benign corporate/newsletter emails).
+  - *Benchmark Scope Note*: This 100-sample suite measures recall and false-positive rates on known synthetic vectors within an internal test harness. Production security operates as a best-effort defense-in-depth architecture; no automated system can guarantee 100% impenetrability against novel zero-day prompts, which is why explicit human approval remains mandatory.
+- **Live Groq Smoke Test (`npm run regret:smoke`)**:
+  - Tests 5 live draft scenarios (Polite, Harsh, Passive-Aggressive, Commitment, Hinglish) directly against Groq LPU with zero secrets or text logging.
 
 ### 🛡️ 4. Regret Shield: Pre-Approval Quality & Tone Safeguard
 - **Objective**: Intercepts embarrassing mistakes and risky outgoing content before user authorization.
 - **Deterministic Checks (Zero-LLM)**:
   - *Attachment Reminder*: Warns when draft mentions attachments (`PFA`, `attached`, `attach kar diya`) as MailMind creates drafts without attaching files.
-  - *Unfilled Placeholders*: Flags leftover template markers (`[Your Name]`, `[DATE]`, `XXXX`, `TODO`, `{{...}}`) with `HIGH` severity.
-  - *Outgoing Sensitive Credentials*: Reuses local regex shielding + Indian national patterns (12-digit Aadhaar, 10-char PAN `[A-Z]{5}[0-9]{4}[A-Z]{1}`, Bank A/C numbers, Passwords/OTPs) with `HIGH` severity. Excerpts are masked so plain secrets are never stored.
+  - *Unfilled Placeholders*: Flags leftover template markers (`[Your Name]`, `[DATE]`, `XXXX`, `TODO`, `{{...}}`, `<name>`) with `HIGH` severity. Masked credentials like `XXXX 1234` or lowercase `todo` are ignored to minimize false positives.
+  - *Outgoing Sensitive Credentials*: Reuses local regex shielding + Indian national patterns (12-digit Aadhaar verified via Verhoeff checksum algorithm with phone number exclusion, 10-char PAN `[A-Z]{5}[0-9]{4}[A-Z]{1}`, Bank A/C numbers within $\pm 40$ chars of banking context words, Passwords/OTPs) with `HIGH` severity. Excerpts are masked so plain secrets are never stored.
   - *Recipient Hazards*: Identifies Reply-To vs From domain mismatches, Reply-All hazards (> 5 recipients), and newly introduced external recipient domains with `MEDIUM` severity.
   - *Greeting Mismatches*: Detects when greeting name does not match any sender or recipient name with `LOW` severity.
 - **LLM Tone & Commitment Analysis (Groq LPU)**:
@@ -215,7 +220,7 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 
 ---
 
-## 🔒 Security & Privacy Guarantees
+## 🔒 Security & Privacy Architecture (Best-Effort Layered Defense)
 
 | Security Feature | Implementation |
 |---|---|

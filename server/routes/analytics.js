@@ -93,7 +93,7 @@ router.get('/', (req, res) => {
       },
       categories: categoryMap,
       priorities: priorityMap,
-      humanInTheLoopSafetyRate: '100% (Zero autonomous dispatches)'
+      humanInTheLoopSafetyRate: 'Enforced (No autonomous dispatches)'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

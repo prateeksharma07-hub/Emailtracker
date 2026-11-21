@@ -62,7 +62,7 @@ export function cleanSubjectForAnalysis(raw) {
 }
 
 /**
- * Deterministic multi-tier classifier that ensures 100% stable, rock-solid category distribution.
+ * Deterministic multi-tier classifier that provides stable, predictable category distribution.
  */
 export function determineCategoryAndPriority(email) {
   const rawSubject = email.subject || '';
@@ -333,7 +333,7 @@ function extractJsonFromText(rawText) {
 
 /**
  * Complete AI analysis of an email using Groq's high-speed LPU:
- * 1. Checks Privacy Shield first (zero-leak guarantee).
+ * 1. Checks Privacy Shield first (local sensitive data interception).
  * 2. If sensitive -> processes locally and NEVER calls external API.
  * 3. If clean -> invokes Groq to classify, score, summarize, extract tasks, and draft replies.
  */

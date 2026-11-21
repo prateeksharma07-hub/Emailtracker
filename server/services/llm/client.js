@@ -14,7 +14,7 @@ let activeProvider = null;
 const liveGroqProvider = {
   name: 'live-groq',
 
-  async chatCompletion({ model, messages, temperature = 0.2, jsonMode = false, timeoutMs = 12000 }) {
+  async chatCompletion({ model = process.env.GROQ_CHAT_MODEL || 'openai/gpt-oss-20b', messages, temperature = 0.2, jsonMode = false, timeoutMs = 12000 }) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
       throw new Error('GROQ_API_KEY is not configured in environment.');

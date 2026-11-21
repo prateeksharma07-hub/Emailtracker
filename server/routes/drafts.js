@@ -163,14 +163,22 @@ router.post('/:id/approve', async (req, res) => {
   }
 
   try {
+    const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!draft) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+
+    // SECURITY GATE: Drafts linked to DETAINED emails can never be approved
+    if (email && email.shield_verdict === 'DETAINED') {
+      return res.status(403).json({
+        success: false,
+        error: 'SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.'
+      });
+    }
+
     // Regret Shield Guard (if feature is enabled)
     if (isRegretShieldEnabled()) {
-      const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-      if (!draft) {
-        return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
-      }
-      const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
-
       const finalBody = overrides?.reply_body || draft.reply_body;
       const recipientContext = {
         toAddresses: [overrides?.to_address || draft.to_address],
@@ -229,14 +237,22 @@ router.post('/:id/send', async (req, res) => {
   }
 
   try {
+    const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!draft) {
+      return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
+    }
+    const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+
+    // SECURITY GATE: Drafts linked to DETAINED emails can never be approved
+    if (email && email.shield_verdict === 'DETAINED') {
+      return res.status(403).json({
+        success: false,
+        error: 'SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.'
+      });
+    }
+
     // Regret Shield Guard (if feature is enabled)
     if (isRegretShieldEnabled()) {
-      const draft = db.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
-      if (!draft) {
-        return res.status(404).json({ success: false, error: 'Draft not found or access denied.' });
-      }
-      const email = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
-
       const finalBody = overrides?.reply_body || draft.reply_body;
       const recipientContext = {
         toAddresses: [overrides?.to_address || draft.to_address],

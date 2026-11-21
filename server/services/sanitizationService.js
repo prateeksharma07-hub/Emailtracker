@@ -1,7 +1,7 @@
 /**
  * MAILMIND AI — Sensitive Data Protection & Sanitization Service
  * 
- * ZERO-LEAK GUARANTEE:
+ * SENSITIVE DATA SHIELD (LOCAL REGEX INTERCEPTION):
  * Detects OTPs, 2FA codes, credit/debit cards, bank account numbers, passwords,
  * credentials, medical reports, and legal notices BEFORE any email content touches an external AI model.
  * 

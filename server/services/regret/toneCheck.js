@@ -42,6 +42,16 @@ IMPORTANT INSTRUCTIONS:
 3. "softer_rewrite": If risk is medium or high, provide a polished, diplomatic alternative. DO NOT add new facts, new phone numbers, links, or bank accounts.`;
 
 /**
+ * Strips markdown code fences (```json ... ```) from LLM output if present
+ */
+function stripCodeFences(str) {
+  if (typeof str !== 'string') return str;
+  const trimmed = str.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+/**
  * Validates that the AI-generated softer rewrite does not hallucinate new URLs, emails, or phone numbers
  */
 function validateRewriteGrounding(originalDraft, rewrite) {
@@ -104,15 +114,26 @@ ${(visibleContext || 'No prior email context.').slice(0, 1500)}
 
   try {
     const rawResponse = await chatCompletion({
+      model: process.env.GROQ_CHAT_MODEL || 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: TONE_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.1,
-      response_format: { type: 'json_object' }
+      jsonMode: true
     });
 
-    const parsed = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+    let rawText = '';
+    if (typeof rawResponse === 'string') {
+      rawText = rawResponse;
+    } else if (rawResponse && typeof rawResponse.content === 'string') {
+      rawText = rawResponse.content;
+    } else if (rawResponse && typeof rawResponse === 'object') {
+      rawText = JSON.stringify(rawResponse);
+    }
+
+    const cleaned = stripCodeFences(rawText);
+    const parsed = JSON.parse(cleaned);
     const validatedRewrite = validateRewriteGrounding(draftText, parsed.softer_rewrite);
 
     return {

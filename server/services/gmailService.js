@@ -462,6 +462,14 @@ export async function createGmailDraft(draftId, userId, overrides = {}) {
     throw err;
   }
 
+  // SECURITY GATE: Prevent approving drafts attached to DETAINED (prompt-injected) emails
+  const parentEmail = db.prepare('SELECT * FROM emails WHERE id = ? AND user_id = ?').get(draft.email_id, userId);
+  if (parentEmail && parentEmail.shield_verdict === 'DETAINED') {
+    const err = new Error('SECURITY GATE VIOLATION: Drafts associated with DETAINED emails cannot be approved. Quarantined to prevent adversarial prompt injection.');
+    err.statusCode = 403;
+    throw err;
+  }
+
   const to = overrides.to_address || draft.to_address;
   const subject = overrides.subject || draft.subject;
   const body = overrides.reply_body || draft.reply_body;

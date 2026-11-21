@@ -425,7 +425,7 @@ export default function SettingsModal({ isOpen, onClose, onDemoLoaded }) {
             {/* Security Rules Breakdown */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200/60 dark:border-white/10 space-y-3">
               <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Multi-User SaaS Security Guarantees
+                Multi-User SaaS Security Architecture
               </h4>
 
               <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
