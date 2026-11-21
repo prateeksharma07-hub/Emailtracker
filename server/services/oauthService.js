@@ -306,6 +306,8 @@ export async function deleteUserAndData(userId) {
   }
 
   // Strictly wipe all user-associated records
+  db.prepare('DELETE FROM campus_items WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM sender_profiles WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM email_headers_meta WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM draft_checks WHERE user_id = ?').run(userId);

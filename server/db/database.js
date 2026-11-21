@@ -337,6 +337,67 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_headers_meta_user_email ON email_headers_meta(user_id, email_id);
   `);
 
+  // 12. Feature 3: Calendar Deadlines columns in `tasks`
+  if (tableExists('tasks')) {
+    if (!columnExists('tasks', 'due_at')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN due_at TEXT;`);
+    }
+    if (!columnExists('tasks', 'due_tz')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN due_tz TEXT;`);
+    }
+    if (!columnExists('tasks', 'due_all_day')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN due_all_day INTEGER DEFAULT 0;`);
+    }
+    if (!columnExists('tasks', 'due_confidence')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN due_confidence TEXT;`);
+    }
+    if (!columnExists('tasks', 'due_source_flagged')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN due_source_flagged INTEGER DEFAULT 0;`);
+    }
+    if (!columnExists('tasks', 'deadline_kind')) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN deadline_kind TEXT;`);
+    }
+  }
+
+  // 13. Feature 3: User Settings & Campus Items tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY,
+      timezone TEXT DEFAULT 'Asia/Kolkata',
+      campus_mode INTEGER DEFAULT 0,
+      campus_domains_json TEXT DEFAULT '[]',
+      reminder_prefs_json TEXT DEFAULT '{"days_before":1,"hours_before":1}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS campus_items (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email_id TEXT NOT NULL,
+      task_id TEXT,
+      kind TEXT NOT NULL,
+      course TEXT,
+      title TEXT NOT NULL,
+      due_at TEXT,
+      due_tz TEXT,
+      all_day INTEGER DEFAULT 0,
+      confidence TEXT,
+      source_flagged INTEGER DEFAULT 0,
+      trust_label TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_campus_items_user ON campus_items(user_id);
+    CREATE INDEX IF NOT EXISTS idx_campus_items_email ON campus_items(email_id);
+    CREATE INDEX IF NOT EXISTS idx_campus_items_due ON campus_items(due_at);
+    CREATE INDEX IF NOT EXISTS idx_campus_items_kind ON campus_items(kind);
+    CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at);
+  `);
+
   console.log('[Database] Migrations verified successfully.');
 }
 

@@ -19,9 +19,11 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.5",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "luxon": "^3.7.2"
   },
   "devDependencies": {
+    "ical.js": "^2.2.1",
     "supertest": "^7.3.2"
   }
 }
