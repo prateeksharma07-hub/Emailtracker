@@ -245,6 +245,18 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 - **Feature Flag Controlled**:
   - Gated behind `FEATURE_SENDER_TRUST` (default: `true`). Disabling shuts down Layer 4, sent sync, and sender routes.
 
+### 📅 6. Deadline -> Calendar & Campus Mode (RFC 5545 & Semester Timeline)
+- **Objective**: Best-effort extraction of deadlines, submissions, and meetings from visible email text, direct export to RFC 5545 `.ics` and zero-scope Google Calendar, and comprehensive Campus Mode for college courses, exams, fees, and placements.
+- **Strict Invariants & Safety Rules**:
+  1. *Zero New OAuth Scopes*: Zero Google Calendar API scopes or permissions required. Calendar export functions via RFC 5545 `.ics` file generation and browser Google Calendar Web Template URLs (`https://calendar.google.com/calendar/render?action=TEMPLATE&...`).
+  2. *Best-Effort Disclaimer*: Date and campus extraction are best-effort heuristic inferences. The UI and documentation clearly label dates as inferred and instruct users to verify against official college portals before relying.
+  3. *Zero Hallucination*: If an email does not state a specific deadline or schedule, `due_at` is left `null` (never invented). Dates in the past (> 1 day prior) or distant future (> 2 years) are invalidated.
+  4. *Security Containment*: `DETAINED` emails undergo zero AI deadline or campus extraction. `SUSPICIOUS` emails extract strictly from sanitized `visibleText` and mark output tasks with `due_source_flagged = 1`.
+  5. *Sender Trust Memory Integration*: College fee notices or scholarship offers originating from non-trusted or unknown senders automatically display prominent verification warning badges (`Official portal se verify karo`).
+  6. *RFC 5545 Compliance*: CRLF line delimiters (`\r\n`), 75-octet line folding preserving multibyte UTF-8 boundaries without character splitting, character escaping (`\`, `;`, `,`, `\n`), header injection defense, and VALARM reminder triggers.
+  7. *Schedule Clash Detection*: Deterministically checks for clashes within $\pm 60$ minutes for timed events or same-day conflicts for all-day deadlines.
+  8. *Feature Flags*: Controlled by `FEATURE_CALENDAR_EXPORT` (default `true`) and `FEATURE_CAMPUS_MODE` (default `true`). Campus tab in sidebar is displayed conditionally only when user enables Campus Mode in settings.
+
 ---
 
 ## 🔒 Security & Privacy Architecture (Best-Effort Layered Defense)
@@ -256,6 +268,8 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 | **AI Email Firewall** | Multi-layer screening (HTML/CSS tricks, Unicode tags, Groq Prompt Guard 2, Sender Trust Memory). |
 | **Sender Trust Memory** | Homoglyph lookalike defense, display name spoofing detection, Google MTA auth inspection, and sent metadata sync. |
 | **Regret Shield** | Pre-approval check for attachments, placeholders, PAN/Aadhaar, recipient risks, tone risks, and explicit 409 acknowledgment. |
+| **Calendar Deadlines** | RFC 5545 .ics generation with CRLF line folding, zero Google Calendar API scopes, and clash detection. |
+| **Campus Mode** | Academic milestones, course timelines, and Sender Trust fee verification advisories. |
 | **Zero Raw HTML Injection** | Plaintext React tokenization; no `dangerouslySetInnerHTML` for emails. |
 | **Zero Auto-Send** | Only creates drafts upon explicit human approval. |
 | **Session Security** | `httpOnly`, `sameSite=lax`, 7-day TTL with database session revocation. |
