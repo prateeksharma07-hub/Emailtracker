@@ -158,7 +158,7 @@ router.post('/seed-samples', async (req, res) => {
         emailId,
         userId,
         'th_' + sample.id,
-        userId,
+        null, // account_id nullable to avoid legacy accounts foreign key collision
         sample.sender,
         sample.senderName || 'Benchmark Source',
         req.user.email,

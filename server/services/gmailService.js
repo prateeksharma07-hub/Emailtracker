@@ -270,12 +270,19 @@ export async function syncGmailInbox(userId, options = {}) {
   });
 
   try {
+    const existingUser = db.prepare('SELECT id, email FROM users WHERE id = ?').get(userId);
+    if (!existingUser) {
+      const userErr = new Error('User not found or session expired. Please log in again.');
+      userErr.code = 'USER_NOT_FOUND';
+      userErr.statusCode = 401;
+      throw userErr;
+    }
+
     let authData;
     if (options.gmailClient || customGmailClientFactory) {
-      const existingUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
       authData = {
         oauth2Client: null,
-        user: existingUser || { id: userId, email: `${userId}@example.com` }
+        user: existingUser
       };
     } else {
       authData = await getAuthenticatedClientForUser(userId);
@@ -463,47 +470,48 @@ export async function syncGmailInbox(userId, options = {}) {
         aiProcessedCount++;
       }
 
-      // 4. Store Email Metadata in SQLite strictly under user_id
-      const insertEmail = db.prepare(`
-        INSERT INTO emails (
-          id, user_id, thread_id, account_id, sender, sender_name, recipient, subject,
-          body_text, body_html, snippet, date_received, is_read,
-          is_sensitive, sensitive_type, category, priority_score, summary, shield_verdict, ai_processed
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          user_id = excluded.user_id,
-          category = excluded.category,
-          priority_score = excluded.priority_score,
-          summary = excluded.summary,
-          shield_verdict = excluded.shield_verdict
-      `);
-
-      insertEmail.run(
-        parsedEmail.id,
-        userId,
-        parsedEmail.thread_id,
-        null, // account_id nullable to avoid legacy accounts foreign key collision
-        parsedEmail.sender,
-        parsedEmail.sender_name,
-        parsedEmail.recipient,
-        parsedEmail.subject,
-        parsedEmail.body_text,
-        parsedEmail.body_html,
-        parsedEmail.snippet,
-        parsedEmail.date_received,
-        parsedEmail.is_read,
-        analysis.is_sensitive ? 1 : 0,
-        analysis.sensitive_type || null,
-        analysis.category,
-        analysis.priority_score,
-        analysis.summary,
-        shieldResult.verdict,
-        1
-      );
-
-      // Persist Shield scan result strictly after email record exists (satisfying foreign key)
-      const scanId = 'scan_' + Math.random().toString(36).slice(2, 10);
+      // 4. Store Email Metadata and children in SQLite strictly under user_id inside an atomic transaction
+      db.exec('BEGIN IMMEDIATE');
       try {
+        const insertEmail = db.prepare(`
+          INSERT INTO emails (
+            id, user_id, thread_id, account_id, sender, sender_name, recipient, subject,
+            body_text, body_html, snippet, date_received, is_read,
+            is_sensitive, sensitive_type, category, priority_score, summary, shield_verdict, ai_processed
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            user_id = excluded.user_id,
+            category = excluded.category,
+            priority_score = excluded.priority_score,
+            summary = excluded.summary,
+            shield_verdict = excluded.shield_verdict
+        `);
+
+        insertEmail.run(
+          parsedEmail.id,
+          userId,
+          parsedEmail.thread_id,
+          null, // account_id nullable to avoid legacy accounts foreign key collision
+          parsedEmail.sender,
+          parsedEmail.sender_name,
+          parsedEmail.recipient,
+          parsedEmail.subject,
+          parsedEmail.body_text,
+          parsedEmail.body_html,
+          parsedEmail.snippet,
+          parsedEmail.date_received,
+          parsedEmail.is_read,
+          analysis.is_sensitive ? 1 : 0,
+          analysis.sensitive_type || null,
+          analysis.category,
+          analysis.priority_score,
+          analysis.summary,
+          shieldResult.verdict,
+          1
+        );
+
+        // Persist Shield scan result strictly after email record exists (satisfying foreign key)
+        const scanId = 'scan_' + Math.random().toString(36).slice(2, 10);
         db.prepare(`
           INSERT INTO shield_scans (
             id, user_id, email_id, verdict, threat_score, layers_json,
@@ -520,55 +528,60 @@ export async function syncGmailInbox(userId, options = {}) {
           shieldResult.visibleText,
           shieldResult.aiText
         );
-      } catch (scanErr) {
-        console.warn('[Shield Save Notice]', scanErr.message);
-      }
 
-      // Ingest sender profile and email headers metadata for Sender Trust Memory (inside try/catch)
-      try {
+        // Ingest sender profile and email headers metadata for Sender Trust Memory
         ingestIncomingEmailHeaders(parsedEmail.id, userId, parsedEmail.headers || []);
-      } catch (ingestErr) {
-        console.warn('[Sender Memory Ingestion Warning]', ingestErr.message);
-      }
 
-      // 5. Save Extracted Action Items under user_id
-      if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
-        const insertTask = db.prepare(`
-          INSERT INTO tasks (id, user_id, email_id, task_title, deadline_date, deadline_text)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        for (const t of analysis.tasks) {
-          insertTask.run(
-            'task_' + Math.random().toString(36).slice(2, 10),
-            userId,
-            parsedEmail.id,
-            t.task_title,
-            t.deadline_date || null,
-            t.deadline_text || null
-          );
+        // 5. Save Extracted Action Items under user_id
+        if (Array.isArray(analysis.tasks) && analysis.tasks.length > 0) {
+          const insertTask = db.prepare(`
+            INSERT INTO tasks (id, user_id, email_id, task_title, deadline_date, deadline_text)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+          for (const t of analysis.tasks) {
+            insertTask.run(
+              'task_' + Math.random().toString(36).slice(2, 10),
+              userId,
+              parsedEmail.id,
+              t.task_title,
+              t.deadline_date || null,
+              t.deadline_text || null
+            );
+          }
         }
-      }
 
-      // 6. Save AI Reply Drafts under user_id
-      if (Array.isArray(analysis.reply_drafts) && analysis.reply_drafts.length > 0) {
-        const insertDraft = db.prepare(`
-          INSERT INTO drafts (id, user_id, email_id, to_address, subject, reply_body, tone, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
-        `);
-        for (const d of analysis.reply_drafts) {
-          insertDraft.run(
-            'draft_' + Math.random().toString(36).slice(2, 10),
-            userId,
-            parsedEmail.id,
-            parsedEmail.sender,
-            d.subject || `Re: ${parsedEmail.subject}`,
-            d.reply_body,
-            d.tone || 'Professional'
-          );
+        // 6. Save AI Reply Drafts under user_id
+        if (Array.isArray(analysis.reply_drafts) && analysis.reply_drafts.length > 0) {
+          const insertDraft = db.prepare(`
+            INSERT INTO drafts (id, user_id, email_id, to_address, subject, reply_body, tone, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
+          `);
+          for (const d of analysis.reply_drafts) {
+            insertDraft.run(
+              'draft_' + Math.random().toString(36).slice(2, 10),
+              userId,
+              parsedEmail.id,
+              parsedEmail.sender,
+              d.subject || `Re: ${parsedEmail.subject}`,
+              d.reply_body,
+              d.tone || 'Professional'
+            );
+          }
         }
-      }
 
-      newEmailsCount++;
+        db.exec('COMMIT');
+        newEmailsCount++;
+      } catch (writeErr) {
+        try { db.exec('ROLLBACK'); } catch (_) {}
+        failedCount++;
+        const sanitizedMsg = `[DB Error in insertEmail on emails: ${writeErr.message}]`;
+        console.error(sanitizedMsg);
+        stageErrors.push({
+          stage: 'database_write',
+          message: sanitizedMsg,
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
     // 7. Update user's last_sync_at timestamp

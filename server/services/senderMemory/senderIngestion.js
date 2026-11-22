@@ -32,6 +32,10 @@ export function ingestIncomingEmailHeaders(emailId, userId, headers = []) {
 
     if (!from || !from.email) return null;
 
+    // Verify user exists to satisfy foreign key constraints
+    const userExists = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+    if (!userExists) return null;
+
     // 1. Upsert into email_headers_meta (only if email row exists to satisfy foreign key)
     try {
       const emailExists = db.prepare('SELECT id FROM emails WHERE id = ? AND user_id = ?').get(emailId, userId);
@@ -65,47 +69,54 @@ export function ingestIncomingEmailHeaders(emailId, userId, headers = []) {
     }
 
     // 2. Upsert into sender_profiles
-    const existingProfile = db.prepare(`
-      SELECT * FROM sender_profiles WHERE user_id = ? AND sender_email = ?
-    `).get(userId, from.email);
+    try {
+      const existingProfile = db.prepare(`
+        SELECT * FROM sender_profiles WHERE user_id = ? AND sender_email = ?
+      `).get(userId, from.email);
 
-    if (!existingProfile) {
-      const profileId = 'snd_' + crypto.randomUUID();
-      const displayNames = from.name ? [from.name] : [];
-      db.prepare(`
-        INSERT INTO sender_profiles (
-          id, user_id, sender_email, sender_domain, display_names_json,
-          first_seen_at, last_seen_at, received_count, sent_to_count, trust_state, user_set
-        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 0, 'unknown', 0)
-      `).run(
-        profileId,
-        userId,
-        from.email,
-        from.domain,
-        JSON.stringify(displayNames)
-      );
-    } else {
-      let displayNames = [];
-      try {
-        displayNames = JSON.parse(existingProfile.display_names_json || '[]');
-      } catch (_) {
-        displayNames = [];
-      }
-      if (from.name && !displayNames.includes(from.name)) {
-        displayNames.push(from.name);
-      }
+      if (!existingProfile) {
+        const profileId = 'snd_' + crypto.randomUUID();
+        const displayNames = from.name ? [from.name] : [];
+        db.prepare(`
+          INSERT INTO sender_profiles (
+            id, user_id, sender_email, sender_domain, display_names_json,
+            first_seen_at, last_seen_at, received_count, sent_to_count, trust_state, user_set
+          ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 0, 'unknown', 0)
+          ON CONFLICT(user_id, sender_email) DO UPDATE SET
+            received_count = sender_profiles.received_count + 1,
+            last_seen_at = CURRENT_TIMESTAMP
+        `).run(
+          profileId,
+          userId,
+          from.email,
+          from.domain,
+          JSON.stringify(displayNames)
+        );
+      } else {
+        let displayNames = [];
+        try {
+          displayNames = JSON.parse(existingProfile.display_names_json || '[]');
+        } catch (_) {
+          displayNames = [];
+        }
+        if (from.name && !displayNames.includes(from.name)) {
+          displayNames.push(from.name);
+        }
 
-      db.prepare(`
-        UPDATE sender_profiles
-        SET received_count = received_count + 1,
-            last_seen_at = CURRENT_TIMESTAMP,
-            display_names_json = ?
-        WHERE id = ? AND user_id = ?
-      `).run(
-        JSON.stringify(displayNames),
-        existingProfile.id,
-        userId
-      );
+        db.prepare(`
+          UPDATE sender_profiles
+          SET received_count = received_count + 1,
+              last_seen_at = CURRENT_TIMESTAMP,
+              display_names_json = ?
+          WHERE id = ? AND user_id = ?
+        `).run(
+          JSON.stringify(displayNames),
+          existingProfile.id,
+          userId
+        );
+      }
+    } catch (senderErr) {
+      console.warn('[Sender Profile Upsert Warning]', senderErr.message);
     }
 
     return {

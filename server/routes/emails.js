@@ -185,6 +185,14 @@ router.post('/sync', syncLimiter, async (req, res) => {
       });
     }
 
+    if (err.code === 'USER_NOT_FOUND') {
+      return res.status(401).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: err.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: err.message || 'Synchronization failed.'

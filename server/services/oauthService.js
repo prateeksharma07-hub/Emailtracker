@@ -305,19 +305,38 @@ export async function deleteUserAndData(userId) {
     }
   }
 
-  // Strictly wipe all user-associated records
-  db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM sender_profiles WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM email_headers_meta WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM draft_checks WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM shield_scans WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM lab_runs WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM drafts WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM tasks WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM emails WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM activity_logs WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
-  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  // Strictly wipe all user-associated records inside an atomic transaction (leaf children first)
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // 1. Leaf children referencing drafts
+    db.prepare('DELETE FROM draft_checks WHERE user_id = ?').run(userId);
+
+    // 2. Leaf children referencing emails
+    db.prepare('DELETE FROM shield_scans WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM email_headers_meta WHERE user_id = ?').run(userId);
+    try {
+      db.prepare('DELETE FROM campus_items WHERE user_id = ?').run(userId);
+    } catch (_) {}
+    db.prepare('DELETE FROM drafts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM tasks WHERE user_id = ?').run(userId);
+
+    // 3. Parent tables referencing users
+    db.prepare('DELETE FROM emails WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sender_profiles WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM lab_runs WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM activity_logs WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+
+    // 4. Root user record
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+
+    db.exec('COMMIT');
+  } catch (deleteErr) {
+    try { db.exec('ROLLBACK'); } catch (_) {}
+    console.error('[Delete User Data Error]', deleteErr.message);
+    throw deleteErr;
+  }
 
   return {
     success: true,

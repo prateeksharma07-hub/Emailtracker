@@ -18,6 +18,7 @@ const dbPath = path.resolve(__dirname, '..', 'mailmind.db');
 export const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA busy_timeout = 5000;');
+db.exec('PRAGMA foreign_keys = ON;');
 
 /**
  * Checks if a column exists in a given SQLite table
@@ -84,6 +85,81 @@ function runMigrations() {
   if (tableExists('emails') && !columnExists('emails', 'user_id')) {
     console.log('[Migration] Adding user_id column to emails table...');
     db.exec(`ALTER TABLE emails ADD COLUMN user_id TEXT;`);
+  }
+
+  // 3b. Safe copy-and-swap migration for `emails` foreign keys
+  if (tableExists('emails')) {
+    try {
+      const emailFks = db.prepare("PRAGMA foreign_key_list('emails')").all();
+      const hasLegacyAccountFk = emailFks.some(fk => fk.table === 'accounts');
+      const hasUserFk = emailFks.some(fk => fk.table === 'users' && fk.from === 'user_id');
+
+      if (hasLegacyAccountFk || !hasUserFk) {
+        console.log('[Migration] Migrating emails table foreign key constraint to users(id)...');
+        db.exec('PRAGMA foreign_keys = OFF;');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS emails_new (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            thread_id TEXT NOT NULL,
+            account_id TEXT,
+            sender TEXT NOT NULL,
+            sender_name TEXT,
+            recipient TEXT NOT NULL,
+            subject TEXT,
+            body_text TEXT,
+            body_html TEXT,
+            snippet TEXT,
+            date_received DATETIME NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            is_sensitive INTEGER DEFAULT 0,
+            sensitive_type TEXT,
+            category TEXT DEFAULT 'Other',
+            priority_score INTEGER DEFAULT 3,
+            summary TEXT,
+            shield_verdict TEXT DEFAULT 'CLEARED',
+            needs_reply INTEGER DEFAULT 0,
+            needs_reply_reason TEXT,
+            needs_reply_urgency INTEGER DEFAULT 1,
+            suggested_action TEXT,
+            detected_language TEXT DEFAULT 'English',
+            is_follow_up_candidate INTEGER DEFAULT 0,
+            follow_up_due_date DATETIME,
+            ai_processed INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `);
+
+        const oldCols = db.prepare("PRAGMA table_info('emails')").all().map(c => c.name);
+        const targetCols = [
+          'id', 'user_id', 'thread_id', 'account_id', 'sender', 'sender_name', 'recipient', 'subject',
+          'body_text', 'body_html', 'snippet', 'date_received', 'is_read', 'is_sensitive', 'sensitive_type',
+          'category', 'priority_score', 'summary', 'shield_verdict', 'needs_reply', 'needs_reply_reason',
+          'needs_reply_urgency', 'suggested_action', 'detected_language', 'is_follow_up_candidate',
+          'follow_up_due_date', 'ai_processed', 'created_at'
+        ].filter(c => oldCols.includes(c));
+
+        const colList = targetCols.join(', ');
+        db.exec(`INSERT INTO emails_new (${colList}) SELECT ${colList} FROM emails;`);
+        db.exec('DROP TABLE emails;');
+        db.exec('ALTER TABLE emails_new RENAME TO emails;');
+
+        db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+          CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date_received DESC);
+          CREATE INDEX IF NOT EXISTS idx_emails_category ON emails(category);
+          CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority_score);
+          CREATE INDEX IF NOT EXISTS idx_emails_sensitive ON emails(is_sensitive);
+          CREATE INDEX IF NOT EXISTS idx_emails_shield_verdict ON emails(shield_verdict);
+        `);
+        db.exec('PRAGMA foreign_keys = ON;');
+        console.log('[Migration] emails table copy-and-swap migration complete.');
+      }
+    } catch (colMigErr) {
+      db.exec('PRAGMA foreign_keys = ON;');
+      console.warn('[Migration Warning] emails table copy-and-swap migration notice:', colMigErr.message);
+    }
   }
 
   // 4. Ensure `user_id` exists in `tasks`
@@ -350,7 +426,44 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_headers_meta_user_email ON email_headers_meta(user_id, email_id);
   `);
 
+  // 12. Run idempotent foreign key repair migration (cleans orphan derived child rows if any)
+  runRepairMigration();
+
   console.log('[Database] Migrations verified successfully.');
+}
+
+/**
+ * Idempotently inspects foreign key consistency and cleans orphan derived child rows.
+ * Creates a timestamped backup before any repair deletes.
+ */
+export function runRepairMigration() {
+  try {
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations && violations.length > 0) {
+      console.log(`[Repair Migration] Found ${violations.length} foreign key violation(s). Initiating repair...`);
+      // 1. Create timestamped backup of mailmind.db before deleting any orphan rows
+      const backupPath = path.resolve(__dirname, '..', `mailmind.db.backup_${Date.now()}`);
+      if (fs.existsSync(dbPath)) {
+        fs.copyFileSync(dbPath, backupPath);
+        console.log(`[Repair Migration] Created safety backup at ${backupPath}`);
+      }
+
+      // 2. Only clean derived child rows, never touching emails or users
+      const allowedChildTables = ['shield_scans', 'drafts', 'tasks', 'email_headers_meta', 'campus_items', 'draft_checks'];
+      let cleanedCount = 0;
+      for (const v of violations) {
+        if (allowedChildTables.includes(v.table)) {
+          db.prepare(`DELETE FROM ${v.table} WHERE rowid = ?`).run(v.rowid);
+          cleanedCount++;
+        }
+      }
+      console.log(`[Repair Migration] Cleaned ${cleanedCount} orphan derived child row(s).`);
+    } else {
+      console.log('[Repair Migration] 0 foreign key violations found. Database consistent.');
+    }
+  } catch (repairErr) {
+    console.warn('[Repair Migration Notice]', repairErr.message);
+  }
 }
 
 /**
