@@ -41,11 +41,13 @@ export default function HeroSection({ onConnect, isConnecting, authNotification,
     <section
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className="relative min-h-[92vh] pt-32 pb-20 flex flex-col justify-center items-center text-center px-4 sm:px-6 overflow-hidden select-none"
+      className="relative min-h-[90dvh] pt-32 pb-20 flex flex-col justify-center items-center text-center px-4 sm:px-6 overflow-hidden select-none"
     >
-      {/* Ambient background glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] sm:w-[1100px] h-[450px] bg-gradient-to-b from-amber-500/12 via-orange-600/8 to-transparent blur-[140px] pointer-events-none -z-10" />
-      <div className="absolute bottom-10 right-10 w-80 h-80 bg-cyan-500/8 rounded-full blur-[100px] pointer-events-none -z-10" />
+      {/* Ambient background glows constrained within viewport */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[90vw] max-w-[1000px] h-[350px] sm:h-[450px] bg-gradient-to-b from-amber-500/12 via-orange-600/8 to-transparent blur-[120px]" />
+        <div className="absolute bottom-10 right-10 w-64 sm:w-80 h-64 sm:h-80 bg-cyan-500/8 rounded-full blur-[100px]" />
+      </div>
 
       {/* Floating 3D Glass Envelope Visual in background */}
       <div
@@ -126,7 +128,7 @@ export default function HeroSection({ onConnect, isConnecting, authNotification,
           className="relative max-w-3xl my-2 cursor-crosshair select-none"
         >
           {/* Base Layer: Innocent Visible Text */}
-          <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-white leading-[1.08] uppercase">
+          <h1 className="text-hero-headline font-display font-black tracking-tight text-white leading-[1.08]">
             Your Inbox, Shielded by{' '}
             <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-200 bg-clip-text text-transparent">
               AI Firewall.
@@ -146,7 +148,7 @@ export default function HeroSection({ onConnect, isConnecting, authNotification,
             }}
             aria-hidden="true"
           >
-            <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight text-rose-500 leading-[1.08] uppercase bg-[#080C14] bg-opacity-95 p-1 rounded-3xl">
+            <h1 className="text-hero-headline font-display font-black tracking-tight text-rose-500 leading-[1.08] bg-[#080C14] bg-opacity-95 p-1 rounded-3xl">
               [INJECTION BLOCKED:{' '}
               <span className="text-rose-400 underline decoration-rose-500 underline-offset-8">
                 OVERRIDE SYSTEM INSTRUCTIONS
@@ -191,7 +193,7 @@ export default function HeroSection({ onConnect, isConnecting, authNotification,
         </button>
 
         {/* Subtitle / Value Proposition */}
-        <p className="mt-8 text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed">
+        <p className="mt-8 text-base sm:text-lg text-slate-300 font-body max-w-2xl leading-relaxed">
           The first email intelligence copilot with a built-in steganography and prompt injection firewall.
           Incoming mail is inspected before reaching AI models — every draft requires human confirmation.
         </p>

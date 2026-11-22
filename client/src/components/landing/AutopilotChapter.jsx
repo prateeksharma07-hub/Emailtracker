@@ -45,10 +45,10 @@ export default function AutopilotChapter() {
           <MessageSquare className="w-4 h-4" />
           <span>Chapter 04 // AUTOPILOT ENGINE</span>
         </div>
-        <h2 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-white">
+        <h2 className="text-section-title font-display font-black tracking-tight text-white">
           You Approve. <span className="text-amber-400">Always.</span>
         </h2>
-        <p className="mt-3 text-slate-300 text-sm sm:text-base leading-relaxed">
+        <p className="mt-3 text-slate-300 text-sm sm:text-base font-body leading-relaxed">
           MailMind crafts high-context replies in three distinct tones and extracts deadlines automatically. 
           The AI never clicks send autonomously — every response requires your explicit authorization.
         </p>

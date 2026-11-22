@@ -59,10 +59,10 @@ export default function VerdictChapter() {
           <ShieldCheck className="w-4 h-4" />
           <span>Chapter 03 // THE VERDICTS</span>
         </div>
-        <h2 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-white">
+        <h2 className="text-section-title font-display font-black tracking-tight text-white">
           Customs Dispositions
         </h2>
-        <p className="mt-3 text-slate-300 text-sm sm:text-base leading-relaxed">
+        <p className="mt-3 text-slate-300 text-sm sm:text-base font-body leading-relaxed">
           Inspired by airport border control, each email receives a definitive security disposition. 
           Hover or tap any card to inspect the underlying firewall policy invariant.
         </p>

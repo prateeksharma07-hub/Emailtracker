@@ -42,7 +42,7 @@ export default function PhotoBandSection() {
         <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block mb-2">
           REAL-WORLD ARCHITECTURE METAPHORS
         </span>
-        <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tight text-white">
+        <h2 className="text-section-title font-display font-black tracking-tight text-white">
           Engineered for Extreme Scrutiny
         </h2>
       </div>

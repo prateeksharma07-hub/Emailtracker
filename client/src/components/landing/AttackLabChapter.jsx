@@ -61,10 +61,10 @@ export default function AttackLabChapter({ onConnect }) {
           <FlaskConical className="w-4 h-4" />
           <span>Chapter 05 // ATTACK LAB TEST BENCH</span>
         </div>
-        <h2 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-white">
+        <h2 className="text-section-title font-display font-black tracking-tight text-white">
           See How Naive AI Gets Hijacked
         </h2>
-        <p className="mt-3 text-slate-300 text-sm sm:text-base leading-relaxed">
+        <p className="mt-3 text-slate-300 text-sm sm:text-base font-body leading-relaxed">
           Unshielded LLM assistants blindly obey text hidden in email HTML. MailMind AI intercepts 
           adversarial instructions before tokenization.
         </p>
@@ -80,7 +80,7 @@ export default function AttackLabChapter({ onConnect }) {
           <button
             key={s.id}
             onClick={() => setActiveScenario(s.id)}
-            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+            className={`px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-mono font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500 ${
               activeScenario === s.id
                 ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                 : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/5'

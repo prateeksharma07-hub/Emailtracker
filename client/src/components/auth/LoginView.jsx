@@ -5,6 +5,7 @@ import LandingNav from '../landing/LandingNav';
 import HeroSection from '../landing/HeroSection';
 import ArriveChapter from '../landing/ArriveChapter';
 import ScanChapter from '../landing/ScanChapter';
+import HowItWorksSection from '../landing/HowItWorksSection';
 import VerdictChapter from '../landing/VerdictChapter';
 import AutopilotChapter from '../landing/AutopilotChapter';
 import AttackLabChapter from '../landing/AttackLabChapter';
@@ -48,7 +49,7 @@ export default function LoginView() {
   };
 
   return (
-    <div className={`min-h-screen ${
+    <div className={`min-h-[100dvh] ${
       theme === 'dark' 
         ? 'bg-[#080C14] text-slate-100 selection:bg-amber-500/30 selection:text-amber-200' 
         : 'bg-[#FAF8F5] text-slate-900 selection:bg-amber-500/20 selection:text-amber-900'
@@ -77,8 +78,11 @@ export default function LoginView() {
         {/* Section 1: Chapter 01 // ARRIVE */}
         <ArriveChapter />
 
-        {/* Section 2: Chapter 02 // SCAN & CONVEYOR */}
+        {/* Section 2: Chapter 02 // AUTONOMOUS FORENSIC SCAN */}
         <ScanChapter />
+
+        {/* "Kya Karta Hai" Section: 8 Features with Simple Explanations & Examples */}
+        <HowItWorksSection />
 
         {/* Section 3: Chapter 03 // VERDICTS */}
         <VerdictChapter />

@@ -1,39 +1,8 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef } from 'react';
 import { Mail, Clock, AlertTriangle, ShieldAlert, CheckCircle2, ChevronRight, Inbox, Sparkles } from 'lucide-react';
-import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-
-gsap.registerPlugin(ScrollTrigger);
 
 export default function ArriveChapter() {
   const sectionRef = useRef(null);
-  const streamRef = useRef(null);
-
-  useEffect(() => {
-    // Parallax stream animation driven by scroll
-    const ctx = gsap.context(() => {
-      // Check prefers-reduced-motion
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        return;
-      }
-
-      const cards = gsap.utils.toArray('.arrive-card');
-      cards.forEach((card, i) => {
-        const speed = (i % 2 === 0 ? 35 : -35) * (1 + (i % 3) * 0.4);
-        gsap.to(card, {
-          y: speed,
-          scrollTrigger: {
-            trigger: sectionRef.current,
-            start: 'top bottom',
-            end: 'bottom top',
-            scrub: 1.2
-          }
-        });
-      });
-    }, sectionRef);
-
-    return () => ctx.revert();
-  }, []);
 
   const streamEmails = [
     {
@@ -106,10 +75,10 @@ export default function ArriveChapter() {
             <Inbox className="w-4 h-4" />
             <span>Chapter 01 // ARRIVE</span>
           </div>
-          <h2 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-white">
+          <h2 className="text-section-title font-display font-black tracking-tight text-white">
             The Incoming Stream
           </h2>
-          <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
+          <p className="text-slate-300 text-sm sm:text-base font-body leading-relaxed">
             Every day, your mailbox receives an unvetted mixture: high-priority deadlines, regular bills, 
             spoofed display names, and invisible adversarial prompt injections.
           </p>
@@ -117,15 +86,12 @@ export default function ArriveChapter() {
 
         <div className="flex items-center gap-2 font-mono text-xs text-slate-400 bg-white/5 border border-white/10 px-4 py-2 rounded-xl self-start">
           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-          <span>Real-time Ingestion Stream Active</span>
+          <span className="tracking-label">Real-time Ingestion Stream Active</span>
         </div>
       </div>
 
-      {/* Stream Parallax Cards Grid */}
-      <div
-        ref={streamRef}
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-      >
+      {/* Stream Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {streamEmails.map((item, index) => {
           const isDanger = item.tagColor.includes('rose');
           return (

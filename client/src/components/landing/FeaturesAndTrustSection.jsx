@@ -57,7 +57,7 @@ export default function FeaturesAndTrustSection({ onConnect, isConnecting }) {
           <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block mb-2">
             THREE CORE DEFENSIVE PILLARS
           </span>
-          <h2 className="text-3xl sm:text-5xl font-black uppercase tracking-tight text-white">
+          <h2 className="text-section-title font-display font-black tracking-tight text-white">
             Architecture Highlights
           </h2>
         </div>
@@ -76,9 +76,9 @@ export default function FeaturesAndTrustSection({ onConnect, isConnecting }) {
                   </div>
                   <div className="space-y-1">
                     <span className="text-[11px] font-mono text-slate-400 uppercase font-bold block">{f.subtitle}</span>
-                    <h3 className="text-lg font-bold text-white font-sans">{f.title}</h3>
+                    <h3 className="text-lg font-bold text-white font-display">{f.title}</h3>
                   </div>
-                  <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                  <p className="text-xs text-slate-300 leading-relaxed font-body">
                     {f.description}
                   </p>
                 </div>
@@ -95,7 +95,7 @@ export default function FeaturesAndTrustSection({ onConnect, isConnecting }) {
       {/* Trust Architecture Strip */}
       <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-br from-slate-900/90 via-slate-900/50 to-slate-950 border border-white/10 backdrop-blur-xl mb-24">
         <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
-          <h3 className="text-xl sm:text-2xl font-black uppercase text-white tracking-tight">
+          <h3 className="text-xl sm:text-2xl font-black font-display text-white tracking-tight">
             Built for Privacy & Sovereignty
           </h3>
           <p className="text-xs sm:text-sm text-slate-400 font-mono">
