@@ -26,6 +26,7 @@ import shieldRouter from './routes/shield.js';
 import autopilotRouter from './routes/autopilot.js';
 import attackLabRouter from './routes/attackLab.js';
 import sendersRouter from './routes/senders.js';
+import settingsRouter from './routes/settings.js';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -121,6 +122,7 @@ app.use('/api/shield', shieldRouter);
 app.use('/api/autopilot', autopilotRouter);
 app.use('/api/attack-lab', attackLabRouter);
 app.use('/api/senders', sendersRouter);
+app.use('/api/settings', settingsRouter);
 
 // Serve client in production when dist exists
 const clientDistPath = path.resolve(__dirname, '..', 'client', 'dist');

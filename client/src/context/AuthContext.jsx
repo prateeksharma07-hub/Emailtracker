@@ -21,11 +21,22 @@ const AuthContext = createContext({
   clearAuthNotification: () => {}
 });
 
+const ALLOWED_BATCH_SIZES = [20, 50, 100, 200];
+const DEFAULT_BATCH_SIZE = 50;
+
+function getInitialBatchSize() {
+  const cached = localStorage.getItem('mailmind_sync_batch_size');
+  const num = Number(cached);
+  if (ALLOWED_BATCH_SIZES.includes(num)) return num;
+  return DEFAULT_BATCH_SIZE;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [syncBatchSize, setSyncBatchSize] = useState(getInitialBatchSize);
   const [authNotification, setAuthNotification] = useState(null);
   const [serverStatus, setServerStatus] = useState(null);
 
@@ -83,6 +94,10 @@ export function AuthProvider({ children }) {
         const meData = await meRes.json();
         if (meData.authenticated && meData.user) {
           setUser(meData.user);
+          if (meData.user.settings?.syncBatchSize) {
+            setSyncBatchSize(meData.user.settings.syncBatchSize);
+            localStorage.setItem('mailmind_sync_batch_size', String(meData.user.settings.syncBatchSize));
+          }
         } else {
           setUser(null);
         }
@@ -101,21 +116,43 @@ export function AuthProvider({ children }) {
     checkAuthStatus();
   }, [checkAuthStatus]);
 
+  // Updates batch size in state, localStorage, and user_settings in database
+  const updateSyncBatchSize = async (newSize) => {
+    const sizeNum = Number(newSize);
+    if (!ALLOWED_BATCH_SIZES.includes(sizeNum)) return;
+    setSyncBatchSize(sizeNum);
+    localStorage.setItem('mailmind_sync_batch_size', String(sizeNum));
+
+    try {
+      await apiFetch('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ syncBatchSize: sizeNum })
+      });
+    } catch (err) {
+      console.warn('[MAILMIND] Failed to persist sync batch size to server:', err.message);
+    }
+  };
+
   // Triggers live sync for authenticated user
   const triggerSync = async (options = {}) => {
     if (!user) return;
+    const batchSizeToUse = options.batchSize || options.maxResults || syncBatchSize;
     setIsSyncing(true);
-    setSyncStatus({ state: 'syncing', message: 'Syncing inbox with Gmail...' });
+    setSyncStatus({ state: 'syncing', message: `Syncing latest ${batchSizeToUse} emails with Gmail...` });
 
     const safetyTimer = setTimeout(() => {
       setIsSyncing(false);
       checkAuthStatus();
-    }, 60000);
+    }, 120000);
 
     try {
       const res = await apiFetch('/api/emails/sync', {
         method: 'POST',
-        body: JSON.stringify(options)
+        body: JSON.stringify({
+          ...options,
+          batchSize: batchSizeToUse,
+          maxResults: batchSizeToUse
+        })
       });
       clearTimeout(safetyTimer);
 
@@ -134,10 +171,15 @@ export function AuthProvider({ children }) {
         return data;
       }
 
+      const summaryMessage = data.requestedBatchSize !== undefined
+        ? `Requested ${data.usedBatchSize} · Fetched ${data.fetchedNew ?? data.newEmailsCount} new · ${data.alreadyHad ?? data.skippedDuplicates ?? 0} already synced · ${data.failed ?? 0} failed`
+        : `Live sync complete: ${data.newEmailsCount} new emails, ${data.skippedDuplicates || 0} duplicates skipped.`;
+
       setSyncStatus({
         state: 'success',
-        message: `Live sync complete: ${data.newEmailsCount} new emails, ${data.skippedDuplicates || 0} duplicates skipped.`,
-        newCount: data.newEmailsCount,
+        message: summaryMessage,
+        newCount: data.fetchedNew ?? data.newEmailsCount,
+        summary: data,
         lastSyncedAt: data.lastSyncedAt || new Date().toISOString()
       });
 
@@ -224,6 +266,9 @@ export function AuthProvider({ children }) {
         isConnected: isAuthenticated,
         isLoading,
         isSyncing,
+        syncBatchSize,
+        updateSyncBatchSize,
+        allowedBatchSizes: ALLOWED_BATCH_SIZES,
         lastSyncedAt: user?.last_sync_at || syncStatus?.lastSyncedAt || null,
         syncStatus,
         authNotification,

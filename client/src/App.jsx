@@ -57,6 +57,9 @@ export default function App() {
     isAuthenticated,
     isLoading,
     isSyncing, 
+    syncBatchSize,
+    updateSyncBatchSize,
+    allowedBatchSizes,
     syncStatus, 
     lastSyncedAt, 
     authNotification, 
@@ -207,7 +210,8 @@ export default function App() {
 
   const handleTriggerSync = async (opts) => {
     setCurrentPage(1);
-    const res = await triggerSync(opts || { maxResults: 30 });
+    const options = opts || { batchSize: syncBatchSize, maxResults: syncBatchSize };
+    const res = await triggerSync(options);
     fetchEmails();
     fetchAnalytics();
     return res;
@@ -576,13 +580,13 @@ export default function App() {
 
             {/* Sync Button */}
             <button
-              onClick={() => handleTriggerSync()}
+              onClick={() => handleTriggerSync({ batchSize: syncBatchSize, maxResults: syncBatchSize })}
               disabled={isSyncing}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-xs cursor-pointer disabled:opacity-50"
-              title="Sync recent emails from Gmail"
+              title={`Sync latest ${syncBatchSize} emails from Gmail`}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
+              <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : `Sync ${syncBatchSize}`}</span>
             </button>
 
             {/* Theme Toggle */}
@@ -703,6 +707,10 @@ export default function App() {
                 isSyncing={isSyncing}
                 isConnected={isAuthenticated}
                 onConnectGmail={connectGmail}
+                syncBatchSize={syncBatchSize}
+                onUpdateBatchSize={updateSyncBatchSize}
+                allowedBatchSizes={allowedBatchSizes}
+                syncStatus={syncStatus}
               />
             )
           )}

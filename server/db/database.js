@@ -191,7 +191,20 @@ function runMigrations() {
       value TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY,
+      sync_batch_size INTEGER NOT NULL DEFAULT 50,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
+
+  // Ensure `sync_batch_size` column exists in `user_settings` table
+  if (tableExists('user_settings') && !columnExists('user_settings', 'sync_batch_size')) {
+    console.log('[Migration] Adding sync_batch_size column to user_settings table...');
+    db.exec(`ALTER TABLE user_settings ADD COLUMN sync_batch_size INTEGER NOT NULL DEFAULT 50;`);
+  }
 
   // 9. Ensure `draft_checks` table exists (Regret Shield)
   db.exec(`

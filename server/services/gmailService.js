@@ -6,10 +6,18 @@ import { analyzeSensitivity, generateLocalSensitiveMetadata, stripHtml } from '.
 import { runShieldPipeline } from './shield/shieldPipeline.js';
 import { validateAiOutput } from './shield/outputValidator.js';
 import { ingestIncomingEmailHeaders } from './senderMemory/senderIngestion.js';
+import { 
+  DEFAULT_BATCH_SIZE, 
+  FETCH_CONCURRENCY, 
+  AI_CONCURRENCY, 
+  MAX_GMAIL_PAGE_SIZE, 
+  MAX_FETCH_RETRIES, 
+  normalizeBatchSize 
+} from '../config/syncConstants.js';
 
-// Simple concurrency limiter to prevent Groq API 429 rate limit spikes during concurrent user syncs
+// Concurrency limiter to protect Groq API rate limits during concurrent user syncs
 class ConcurrencyLimiter {
-  constructor(maxConcurrency = 2) {
+  constructor(maxConcurrency = AI_CONCURRENCY) {
     this.maxConcurrency = maxConcurrency;
     this.current = 0;
     this.queue = [];
@@ -32,7 +40,16 @@ class ConcurrencyLimiter {
   }
 }
 
-const aiLimiter = new ConcurrencyLimiter(2);
+const aiLimiter = new ConcurrencyLimiter(AI_CONCURRENCY);
+
+// Injectable Gmail client factory for deterministic tests (Rule 5: Zero external network calls)
+let customGmailClientFactory = null;
+export function setGmailClientFactory(fn) {
+  customGmailClientFactory = fn;
+}
+export function resetGmailClientFactory() {
+  customGmailClientFactory = null;
+}
 
 /**
  * Base64url decoder for Gmail message payloads
@@ -144,6 +161,61 @@ export function normalizeGmailMessage(rawMessage, userId) {
 
 // Track active syncs per user to prevent concurrent double-sync for the same user
 const activeUserSyncs = new Set();
+const userSyncStatus = new Map(); // userId -> { status, processed, total, phase, lastResult, error }
+
+/**
+ * Returns ongoing sync progress or last status for a user
+ * @param {string} userId 
+ */
+export function getSyncStatusForUser(userId) {
+  return userSyncStatus.get(userId) || { isSyncing: false, progress: null };
+}
+
+/**
+ * Concurrency runner for processing items with bounded parallel workers
+ */
+async function runPool(items, concurrency, workerFn) {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const currentIndex = index++;
+      await workerFn(items[currentIndex], currentIndex);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * Fetches message detail with exponential backoff & jitter and Retry-After header respect
+ */
+async function fetchMessageWithRetry(gmail, messageId, maxRetries = MAX_FETCH_RETRIES) {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      const res = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+      return res.data;
+    } catch (err) {
+      attempt++;
+      const status = err.status || err.code || err.response?.status;
+      const isRateLimit = status === 429 || err.message?.includes('429') || err.message?.includes('rate limit');
+      const isServerErr = status >= 500 && status < 600;
+
+      if ((isRateLimit || isServerErr) && attempt <= maxRetries) {
+        const retryHeader = err.response?.headers?.['retry-after'] || err.headers?.['retry-after'];
+        let waitMs = 0;
+        if (retryHeader) {
+          const sec = parseInt(retryHeader, 10);
+          waitMs = !isNaN(sec) ? sec * 1000 : 1000;
+        } else {
+          waitMs = Math.min(3000, 200 * Math.pow(2, attempt) + Math.floor(Math.random() * 100));
+        }
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 /**
  * Synchronizes emails from live Gmail API into local SQLite database for a specific user.
@@ -152,14 +224,16 @@ const activeUserSyncs = new Set();
  * - Operates strictly with user's decrypted OAuth tokens.
  * - Enforces WHERE user_id = ? on all queries and inserts.
  * - Protects Groq rate limits with concurrency queue.
- * - BATCH_SIZE = 20 for parallel fetching.
+ * - Single source of truth for batch sizes {20, 50, 100, 200}.
  * 
  * @param {string} userId 
- * @param {object} options - { maxResults: 30, pageToken: null }
+ * @param {object} options - { batchSize, maxResults, pageToken, gmailClient }
  * @returns {Promise<object>} Sync summary
  */
 export async function syncGmailInbox(userId, options = {}) {
-  const maxResults = options.maxResults || 30;
+  const targetCount = normalizeBatchSize(options.batchSize || options.maxResults, DEFAULT_BATCH_SIZE);
+  const requestedBatchSize = options.batchSize || options.maxResults || targetCount;
+  const usedBatchSize = targetCount;
   const pageToken = options.pageToken || undefined;
 
   // Prevent double-sync for the same user
@@ -169,43 +243,85 @@ export async function syncGmailInbox(userId, options = {}) {
       success: true,
       mode: 'LIVE',
       newEmailsCount: 0,
+      skippedDuplicates: 0,
+      sensitiveCount: 0,
+      aiProcessedCount: 0,
       isOngoing: true,
       totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE user_id = ?').get(userId)?.c || 0,
-      lastSyncedAt: new Date().toISOString()
+      lastSyncedAt: new Date().toISOString(),
+      requestedBatchSize,
+      usedBatchSize,
+      fetchedNew: 0,
+      alreadyHad: 0,
+      failed: 0,
+      pages: 0,
+      stageErrors: []
     };
   }
 
   activeUserSyncs.add(userId);
+  userSyncStatus.set(userId, {
+    status: 'running',
+    phase: 'listing',
+    processed: 0,
+    total: targetCount,
+    lastResult: null,
+    error: null
+  });
 
   try {
-    const authData = await getAuthenticatedClientForUser(userId);
-    const { oauth2Client, user } = authData;
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    console.log(`[Gmail Sync] Fetching recent ${maxResults} messages from Gmail API for: ${user.email} (userId: ${userId})`);
-
-    let listRes;
-    try {
-      listRes = await gmail.users.messages.list({
-        userId: 'me',
-        maxResults,
-        pageToken,
-        q: 'in:inbox'
-      });
-    } catch (apiErr) {
-      console.error('[Gmail API Error] List messages failed:', apiErr.message);
-
-      if (apiErr.code === 401 || apiErr.message?.includes('invalid_grant') || apiErr.message?.includes('Token has been expired or revoked')) {
-        const tokenErr = new Error('Your Google session has expired or been revoked. Please reconnect your Gmail account.');
-        tokenErr.code = 'TOKEN_EXPIRED';
-        throw tokenErr;
-      }
-      throw apiErr;
+    let authData;
+    if (options.gmailClient || customGmailClientFactory) {
+      const existingUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+      authData = {
+        oauth2Client: null,
+        user: existingUser || { id: userId, email: `${userId}@example.com` }
+      };
+    } else {
+      authData = await getAuthenticatedClientForUser(userId);
     }
 
-    const messageSummaries = listRes.data.messages || [];
+    const { oauth2Client, user } = authData;
+    const gmail = options.gmailClient || (customGmailClientFactory ? customGmailClientFactory(userId) : google.gmail({ version: 'v1', auth: oauth2Client }));
+
+    console.log(`[Gmail Sync] Fetching recent ${targetCount} messages from Gmail API for: ${user.email} (userId: ${userId})`);
+
+    let messageSummaries = [];
+    let currentPageToken = pageToken;
+    let pages = 0;
+    const stageErrors = [];
+
+    // Paginate until we collect targetCount messages or no more pages
+    while (messageSummaries.length < targetCount) {
+      const pageSize = Math.min(MAX_GMAIL_PAGE_SIZE, targetCount - messageSummaries.length);
+      let listRes;
+      try {
+        listRes = await gmail.users.messages.list({
+          userId: 'me',
+          maxResults: pageSize,
+          pageToken: currentPageToken,
+          q: 'in:inbox'
+        });
+      } catch (apiErr) {
+        console.error('[Gmail API Error] List messages failed:', apiErr.message);
+
+        if (apiErr.code === 401 || apiErr.message?.includes('invalid_grant') || apiErr.message?.includes('Token has been expired or revoked')) {
+          const tokenErr = new Error('Your Google session has expired or been revoked. Please reconnect your Gmail account.');
+          tokenErr.code = 'TOKEN_EXPIRED';
+          throw tokenErr;
+        }
+        throw apiErr;
+      }
+
+      pages++;
+      const msgs = listRes.data?.messages || [];
+      if (msgs.length === 0) break;
+      messageSummaries.push(...msgs);
+      currentPageToken = listRes.data?.nextPageToken;
+      if (!currentPageToken) break;
+    }
+
     let newEmailsCount = 0;
-    let skippedDuplicates = 0;
     let sensitiveCount = 0;
     let aiProcessedCount = 0;
 
@@ -215,6 +331,7 @@ export async function syncGmailInbox(userId, options = {}) {
     );
 
     const pendingSummaries = [];
+    let skippedDuplicates = 0;
     for (const item of messageSummaries) {
       if (existingIds.has(item.id)) {
         skippedDuplicates++;
@@ -222,58 +339,76 @@ export async function syncGmailInbox(userId, options = {}) {
         pendingSummaries.push(item);
       }
     }
+    const alreadyHad = skippedDuplicates;
 
-    console.log(`[Gmail Sync] User ${user.email}: ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel...`);
+    console.log(`[Gmail Sync] User ${user.email}: ${skippedDuplicates} duplicate emails skipped. Fetching ${pendingSummaries.length} new messages in parallel (concurrency: ${FETCH_CONCURRENCY})...`);
 
-    // 2. Fetch full message payloads in parallel batches of 20
-    const BATCH_SIZE = 20;
+    userSyncStatus.set(userId, {
+      status: 'running',
+      phase: 'fetching',
+      processed: 0,
+      total: pendingSummaries.length,
+      lastResult: null,
+      error: null
+    });
+
+    // 2. Fetch full message payloads with bounded concurrency and backoff retries
     const parsedEmails = [];
+    let failedCount = 0;
 
-    for (let i = 0; i < pendingSummaries.length; i += BATCH_SIZE) {
-      const chunk = pendingSummaries.slice(i, i + BATCH_SIZE);
-      const chunkResults = await Promise.allSettled(
-        chunk.map(item => gmail.users.messages.get({ userId: 'me', id: item.id, format: 'full' }))
-      );
-
-      for (const res of chunkResults) {
-        if (res.status === 'fulfilled' && res.value?.data) {
-          parsedEmails.push(normalizeGmailMessage(res.value.data, userId));
+    await runPool(pendingSummaries, FETCH_CONCURRENCY, async (item) => {
+      try {
+        const rawMsg = await fetchMessageWithRetry(gmail, item.id);
+        if (rawMsg) {
+          parsedEmails.push(normalizeGmailMessage(rawMsg, userId));
         }
+      } catch (fetchErr) {
+        failedCount++;
+        const sanitizedMsg = `Failed to fetch message ${item.id}: ${fetchErr.message || 'Fetch error'}`;
+        stageErrors.push(sanitizedMsg);
+        console.warn(`[Gmail Sync Message Fetch Warning] ${sanitizedMsg}`);
       }
-    }
+    });
+
+    // Sort parsedEmails by date_received descending so the freshest emails receive deep LLM triage
+    parsedEmails.sort((a, b) => new Date(b.date_received) - new Date(a.date_received));
+
+    userSyncStatus.set(userId, {
+      status: 'running',
+      phase: 'analyzing',
+      processed: 0,
+      total: parsedEmails.length,
+      lastResult: null,
+      error: null
+    });
 
     // 3. AI Triage & Shield Firewall
     for (let i = 0; i < parsedEmails.length; i++) {
       const parsedEmail = parsedEmails[i];
       let analysis;
 
-      // A. Run Shield + X-Ray Pipeline
-      const shieldResult = await runShieldPipeline(parsedEmail);
-
-      // Persist Shield scan result
-      const scanId = 'scan_' + Math.random().toString(36).slice(2, 10);
+      // A. Run Shield + X-Ray Pipeline with fail-safe error boundary
+      let shieldResult;
       try {
-        db.prepare(`
-          INSERT INTO shield_scans (
-            id, user_id, email_id, verdict, threat_score, layers_json,
-            hidden_segments_json, visible_text, ai_text
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          scanId,
-          userId,
-          parsedEmail.id,
-          shieldResult.verdict,
-          shieldResult.threatScore,
-          JSON.stringify(shieldResult.layers),
-          JSON.stringify(shieldResult.hiddenSegments),
-          shieldResult.visibleText,
-          shieldResult.aiText
-        );
-      } catch (scanErr) {
-        console.warn('[Shield Save Notice]', scanErr.message);
+        shieldResult = await runShieldPipeline(parsedEmail);
+      } catch (shieldErr) {
+        console.warn(`[Shield Pipeline Warning on email ${parsedEmail.id}]`, shieldErr.message);
+        shieldResult = {
+          verdict: 'SUSPICIOUS',
+          threatScore: 40,
+          layers: {
+            htmlInspector: { score: 0 },
+            overridePatterns: { score: 0 },
+            promptGuard: { status: 'unavailable', score: 0 }
+          },
+          hiddenSegments: [],
+          visibleText: parsedEmail.body_text || '',
+          aiText: parsedEmail.body_text || ''
+        };
       }
 
       // B. Security-gated LLM processing
+      let isDeepAiSuccess = false;
       if (shieldResult.verdict === 'DETAINED') {
         // Halt AI reply generation and apply containment template
         analysis = {
@@ -305,8 +440,11 @@ export async function syncGmailInbox(userId, options = {}) {
         if (i < 5) {
           try {
             analysis = await aiLimiter.run(() => analyzeEmail(emailToAnalyze));
+            isDeepAiSuccess = true;
           } catch (e) {
+            console.warn(`[Groq AI Fallback for email ${parsedEmail.id}]`, e.message);
             analysis = fastClassifyEmail(emailToAnalyze);
+            stageErrors.push(`Groq AI triage fallback on email ${parsedEmail.id}: ${e.message}`);
           }
         } else {
           analysis = fastClassifyEmail(emailToAnalyze);
@@ -321,7 +459,7 @@ export async function syncGmailInbox(userId, options = {}) {
 
       if (analysis.is_sensitive) {
         sensitiveCount++;
-      } else {
+      } else if (isDeepAiSuccess) {
         aiProcessedCount++;
       }
 
@@ -344,7 +482,7 @@ export async function syncGmailInbox(userId, options = {}) {
         parsedEmail.id,
         userId,
         parsedEmail.thread_id,
-        userId,
+        null, // account_id nullable to avoid legacy accounts foreign key collision
         parsedEmail.sender,
         parsedEmail.sender_name,
         parsedEmail.recipient,
@@ -362,6 +500,29 @@ export async function syncGmailInbox(userId, options = {}) {
         shieldResult.verdict,
         1
       );
+
+      // Persist Shield scan result strictly after email record exists (satisfying foreign key)
+      const scanId = 'scan_' + Math.random().toString(36).slice(2, 10);
+      try {
+        db.prepare(`
+          INSERT INTO shield_scans (
+            id, user_id, email_id, verdict, threat_score, layers_json,
+            hidden_segments_json, visible_text, ai_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          scanId,
+          userId,
+          parsedEmail.id,
+          shieldResult.verdict,
+          shieldResult.threatScore,
+          JSON.stringify(shieldResult.layers),
+          JSON.stringify(shieldResult.hiddenSegments),
+          shieldResult.visibleText,
+          shieldResult.aiText
+        );
+      } catch (scanErr) {
+        console.warn('[Shield Save Notice]', scanErr.message);
+      }
 
       // Ingest sender profile and email headers metadata for Sender Trust Memory (inside try/catch)
       try {
@@ -427,7 +588,7 @@ export async function syncGmailInbox(userId, options = {}) {
       JSON.stringify({ userId, email: user.email, newEmailsCount, skippedDuplicates, sensitiveCount, aiProcessedCount })
     );
 
-    return {
+    const syncResult = {
       success: true,
       mode: 'LIVE',
       newEmailsCount,
@@ -435,8 +596,37 @@ export async function syncGmailInbox(userId, options = {}) {
       sensitiveCount,
       aiProcessedCount,
       totalInbox: db.prepare('SELECT COUNT(*) as c FROM emails WHERE user_id = ?').get(userId)?.c || 0,
-      lastSyncedAt: now
+      lastSyncedAt: now,
+      // Additive fields
+      requestedBatchSize,
+      usedBatchSize,
+      fetchedNew: newEmailsCount,
+      alreadyHad: skippedDuplicates,
+      failed: failedCount,
+      pages,
+      stageErrors: stageErrors.slice(0, 10)
     };
+
+    userSyncStatus.set(userId, {
+      status: 'done',
+      phase: 'complete',
+      processed: newEmailsCount,
+      total: usedBatchSize,
+      lastResult: syncResult,
+      error: null
+    });
+
+    return syncResult;
+  } catch (syncErr) {
+    userSyncStatus.set(userId, {
+      status: 'failed',
+      phase: 'error',
+      processed: 0,
+      total: 0,
+      lastResult: null,
+      error: syncErr.message
+    });
+    throw syncErr;
   } finally {
     activeUserSyncs.delete(userId);
   }

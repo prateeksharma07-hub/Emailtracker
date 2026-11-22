@@ -10,6 +10,7 @@ import {
 import { syncGmailInbox } from '../services/gmailService.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { db } from '../db/database.js';
+import { getUserSettings } from '../services/settingsService.js';
 
 const router = express.Router();
 
@@ -143,6 +144,8 @@ router.get('/me', (req, res) => {
       return res.status(401).json({ success: false, authenticated: false, user: null });
     }
 
+    user.settings = getUserSettings(user.id);
+
     res.json({
       success: true,
       authenticated: true,
@@ -170,6 +173,9 @@ router.get('/status', (req, res) => {
           SELECT id, google_id, email, name, picture, token_expiry, created_at, last_sync_at
           FROM users WHERE id = ?
         `).get(session.user_id);
+        if (user) {
+          user.settings = getUserSettings(user.id);
+        }
       }
     }
 

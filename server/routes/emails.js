@@ -1,8 +1,10 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { db } from '../db/database.js';
-import { syncGmailInbox } from '../services/gmailService.js';
+import { syncGmailInbox, getSyncStatusForUser } from '../services/gmailService.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
+import { isValidBatchSize, ALLOWED_BATCH_SIZES } from '../config/syncConstants.js';
+import { getUserSettings } from '../services/settingsService.js';
 
 const router = express.Router();
 
@@ -129,16 +131,48 @@ router.get('/:id', (req, res) => {
 });
 
 /**
+ * GET /api/emails/sync/status
+ * Returns ongoing sync progress or latest status for the authenticated user
+ */
+router.get('/sync/status', (req, res) => {
+  try {
+    const status = getSyncStatusForUser(req.user.id);
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/emails/sync
  * Manually triggers Gmail API synchronization for the authenticated user
+ * Accepts optional `batchSize` {20, 50, 100, 200}, falls back to user setting, then default.
  */
 router.post('/sync', syncLimiter, async (req, res) => {
   try {
     const userId = req.user.id;
-    const maxResults = parseInt(req.body.maxResults, 10) || 30;
-    const pageToken = req.body.pageToken || null;
+    const rawBatchSize = req.body.batchSize !== undefined ? req.body.batchSize : req.body.maxResults;
+    let batchSize;
 
-    const result = await syncGmailInbox(userId, { maxResults, pageToken });
+    if (rawBatchSize !== undefined && rawBatchSize !== null && rawBatchSize !== '') {
+      if (!isValidBatchSize(rawBatchSize)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid batch size. Allowed values: ${ALLOWED_BATCH_SIZES.join(', ')}`
+        });
+      }
+      batchSize = Number(rawBatchSize);
+    } else {
+      // Fallback to user saved setting, then system default
+      const userSettings = getUserSettings(userId);
+      batchSize = userSettings.syncBatchSize;
+    }
+
+    const pageToken = req.body.pageToken || null;
+    const result = await syncGmailInbox(userId, { batchSize, pageToken });
     res.json(result);
   } catch (err) {
     console.error('[Sync Route Error]', err.message);
