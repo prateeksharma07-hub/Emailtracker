@@ -11,6 +11,9 @@
     "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\"",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2"
   }

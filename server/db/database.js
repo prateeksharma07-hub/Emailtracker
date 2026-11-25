@@ -12,12 +12,22 @@ const __dirname = path.dirname(__filename);
 // Ensure .env is loaded for encryption key
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
-// Database file path
-const dbPath = path.resolve(__dirname, '..', 'mailmind.db');
+// Database file path: supports SQLITE_PATH for persistent disks (e.g. Render Disk)
+const defaultDbPath = path.resolve(__dirname, '..', 'mailmind.db');
+export const dbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : defaultDbPath;
+
+// Ephemeral storage warning on production deployments without persistent disk
+if (process.env.NODE_ENV === 'production') {
+  const isDefaultEphemeral = !process.env.SQLITE_PATH || dbPath === defaultDbPath;
+  if (isDefaultEphemeral) {
+    console.warn('⚠️ [WARN] Free hosting par data restart par reset ho sakta hai.');
+  }
+}
 
 export const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA busy_timeout = 5000;');
+db.exec('PRAGMA foreign_keys = ON;');
 
 /**
  * Checks if a column exists in a given SQLite table

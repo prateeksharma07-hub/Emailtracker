@@ -109,6 +109,96 @@ npm run dev
 
 ---
 
+## 🚢 Production Deployment Guide
+
+MailMind AI is deployment-ready for cloud hosting. You can deploy it using either **Raasta A** (All-in-one on Render) or **Raasta B** (Decoupled: Frontend on Vercel + Backend on Render).
+
+### ⚠️ Important Note on Free Hosting & SQLite Persistence
+> [!WARNING]
+> Free hosting tiers on Render and similar platforms use ephemeral filesystems. When a free instance spins down due to inactivity or restarts after a deploy, the local SQLite database (`mailmind.db`) resets.
+> - **Development / Trial**: The app runs out-of-the-box without extra setup and will print a warning: `Free hosting par data restart par reset ho sakta hai.`
+> - **Production / Data Durability**: Attach a Render Persistent Disk (e.g. mounted at `/var/data`) and configure the `SQLITE_PATH=/var/data/mailmind.db` environment variable.
+
+---
+
+### 🟢 Raasta A: All-in-One Deployment on Render (Recommended for Simplicity)
+In this setup, a single Render Web Service builds both client and server. Express serves the production React Vite bundle statically from `client/dist` while handling all `/api` endpoints on the same domain.
+
+#### Step 1: Deploy on Render
+1. Push your repository to GitHub.
+2. In the [Render Dashboard](https://dashboard.render.com/), click **New** > **Blueprint** (or **Web Service** using `render.yaml`).
+3. Connect your repository. Render automatically reads `render.yaml` with:
+   - **Build Command**: `npm run build`
+   - **Start Command**: `npm start`
+   - **Health Check Path**: `/api/health`
+
+#### Step 2: Configure Environment Variables on Render
+Set the following environment variables in the Render Dashboard:
+- `NODE_ENV`: `production`
+- `APP_URL`: `https://<your-render-app>.onrender.com` (your Render service URL)
+- `GOOGLE_REDIRECT_URI`: `https://<your-render-app>.onrender.com/api/auth/callback`
+- `GOOGLE_CLIENT_ID`: Your Google OAuth Client ID
+- `GOOGLE_CLIENT_SECRET`: Your Google OAuth Client Secret
+- `GROQ_API_KEY`: Your Groq API Key (`gsk_...`)
+- `TOKEN_ENC_KEY`: 64-character hex key (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+- `SESSION_SECRET`: Secure random hex string for cookie signing
+- *(Optional)* `SQLITE_PATH`: `/var/data/mailmind.db` (if a Render Disk is attached)
+
+#### Step 3: Update Google Cloud Console
+1. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
+2. Edit your OAuth 2.0 Web Client.
+3. Under **Authorized redirect URIs**, add:
+   ```
+   https://<your-render-app>.onrender.com/api/auth/callback
+   ```
+4. Save changes.
+
+---
+
+### 🌐 Raasta B: Decoupled Deployment (Backend on Render + Frontend on Vercel)
+In this setup, the Vite React frontend is hosted on Vercel's global edge CDN, and the Express backend runs on Render. Vercel automatically proxies `/api/*` requests to Render, maintaining single-origin cookies and zero CORS overhead.
+
+#### Step 1: Deploy Backend to Render
+1. Follow Step 1 & 2 of Raasta A to deploy the backend on Render.
+2. Note your Render service URL: `https://<your-render-service>.onrender.com`.
+3. Set the following environment variables on Render:
+   - `APP_URL`: `https://<your-vercel-app>.vercel.app` (your Vercel frontend URL)
+   - `CLIENT_ORIGIN`: `https://<your-vercel-app>.vercel.app`
+   - `GOOGLE_REDIRECT_URI`: `https://<your-render-service>.onrender.com/api/auth/callback`
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GROQ_API_KEY`, `TOKEN_ENC_KEY`, `SESSION_SECRET`
+
+#### Step 2: Configure Vercel Proxy Rewrite
+1. In `client/vercel.json`, replace `<RENDER_URL>` with your actual Render hostname:
+   ```json
+   {
+     "rewrites": [
+       {
+         "source": "/api/:path*",
+         "destination": "https://<your-render-service>.onrender.com/api/:path*"
+       },
+       {
+         "source": "/(.*)",
+         "destination": "/index.html"
+       }
+     ]
+   }
+   ```
+2. Commit and deploy the `client/` directory to Vercel (Root Directory: `client`).
+
+#### Step 3: Update Google Cloud Console
+1. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
+2. Under **Authorized JavaScript origins**, add:
+   ```
+   https://<your-vercel-app>.vercel.app
+   ```
+3. Under **Authorized redirect URIs**, add:
+   ```
+   https://<your-render-service>.onrender.com/api/auth/callback
+   ```
+4. Save changes. Users logging in through Vercel will seamlessly authenticate and redirect back to your Vercel frontend with encrypted session cookies.
+
+---
+
 ## 🛡️ PHASE 1: "Shield + X-Ray" AI Email Firewall
 
 MailMind AI features a multi-layer defense engine designed to intercept prompt injection attacks, hidden adversarial instructions, and steganographic payloads targeting LLM email agents.

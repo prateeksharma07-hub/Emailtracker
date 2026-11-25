@@ -29,61 +29,73 @@ import sendersRouter from './routes/senders.js';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5174';
 
-// Middleware
-app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5174', 'http://127.0.0.1:5173'],
-  credentials: true
-}));
+// Trust reverse proxy (Render / Vercel) for secure cookies and protocol detection
+app.set('trust proxy', 1);
+
+// CORS: enabled only if CLIENT_ORIGIN environment variable is provided
+if (process.env.CLIENT_ORIGIN) {
+  const allowedOrigins = process.env.CLIENT_ORIGIN.split(',').map(o => o.trim()).filter(Boolean);
+  app.use(cors({
+    origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
+    credentials: true
+  }));
+}
+
 app.use(cookieParser(process.env.SESSION_SECRET || 'mailmind-session-secret'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// 1. Enforce Cache-Control: no-store on all /api responses (zero caching of private user data)
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+// 2. CSRF / Origin Validation: Compares incoming request Origin against APP_URL and CLIENT_ORIGIN
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const origin = req.headers.origin;
+    if (origin) {
+      const allowed = [];
+      if (process.env.APP_URL) {
+        try {
+          allowed.push(new URL(process.env.APP_URL).origin);
+        } catch (_) {
+          allowed.push(process.env.APP_URL);
+        }
+      }
+      if (process.env.CLIENT_ORIGIN) {
+        process.env.CLIENT_ORIGIN.split(',').forEach(o => {
+          const trimmed = o.trim();
+          if (trimmed) {
+            try { allowed.push(new URL(trimmed).origin); } catch (_) { allowed.push(trimmed); }
+          }
+        });
+      }
+      // In development / testing, allow localhost and 127.0.0.1
+      if (process.env.NODE_ENV !== 'production') {
+        allowed.push('http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175');
+      }
+
+      if (!allowed.includes(origin)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Request origin does not match configured APP_URL or CLIENT_ORIGIN.',
+          code: 'CSRF_ORIGIN_MISMATCH'
+        });
+      }
+    }
+  }
+  next();
+});
+
 // Initialize SQLite database
 initDb();
 
-// Health check endpoint
+// Health check endpoint (unauthenticated, lightweight)
 app.get('/api/health', (req, res) => {
-  try {
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get()?.count || 0;
-    const emailCount = db.prepare('SELECT COUNT(*) as count FROM emails').get()?.count || 0;
-    const activeSessions = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE expires_at > ?').get(Date.now())?.count || 0;
-    const isAIConfigured = Boolean(
-      process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_')
-    );
-    const isOAuthConfigured = Boolean(
-      process.env.GOOGLE_CLIENT_ID && 
-      process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here' &&
-      process.env.GOOGLE_CLIENT_SECRET &&
-      process.env.GOOGLE_CLIENT_SECRET !== 'your_google_client_secret_here'
-    );
-
-    res.json({
-      status: 'ok',
-      service: 'MAILMIND AI Multi-User Backend API',
-      version: '2.0.0',
-      database: 'connected',
-      multiUser: true,
-      stats: {
-        totalUsers: userCount,
-        activeSessions,
-        syncedEmails: emailCount
-      },
-      config: {
-        aiActive: isAIConfigured,
-        geminiActive: isAIConfigured, // backwards compatibility
-        aiEngine: 'Groq LPU (Ultra-Fast)',
-        oauthConfigured: isOAuthConfigured
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: 'error',
-      message: err.message
-    });
-  }
+  res.json({ status: 'ok' });
 });
 
 // Root API welcome
@@ -143,11 +155,44 @@ app.use((err, req, res, next) => {
   });
 });
 
+/**
+ * Validates required environment variables for deployment.
+ * Never prints secret values to console/logs; only lists missing variable names.
+ */
+export function validateEnvironment(env = process.env) {
+  const REQUIRED_VARS = [
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
+    'GROQ_API_KEY',
+    'TOKEN_ENC_KEY',
+    'SESSION_SECRET',
+    'APP_URL'
+  ];
+
+  const missing = REQUIRED_VARS.filter(key => {
+    const val = env[key];
+    return !val || typeof val !== 'string' || val.trim() === '' || val.startsWith('your_');
+  });
+
+  if (missing.length > 0) {
+    const errorMsg = `[Startup Error] Missing required environment variable(s): ${missing.join(', ')}. Please configure them before starting the server.`;
+    console.error(errorMsg);
+    if (env.NODE_ENV !== 'test') {
+      process.exit(1);
+    }
+    const err = new Error(errorMsg);
+    err.missingVars = missing;
+    throw err;
+  }
+}
+
 export { app };
 export default app;
 
 const isMainModule = Boolean(process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]));
 if (isMainModule && process.env.NODE_ENV !== 'test') {
+  validateEnvironment();
   app.listen(PORT, () => {
     console.log(`===============================================`);
     console.log(`🧠 MAILMIND AI Multi-User Server running on port ${PORT}`);
@@ -155,6 +200,7 @@ if (isMainModule && process.env.NODE_ENV !== 'test') {
     console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
     console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
     console.log(`🔒 AES-256-GCM Token Encryption: Active`);
+    console.log(`🌐 Public App URL: ${process.env.APP_URL || 'Not specified'}`);
     console.log(`===============================================`);
   });
 }

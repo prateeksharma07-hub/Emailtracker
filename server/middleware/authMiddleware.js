@@ -1,4 +1,5 @@
 import { db } from '../db/database.js';
+import { getClearCookieOptions } from '../routes/auth.js';
 
 /**
  * Authentication Middleware: Validates session cookie or Bearer token,
@@ -23,7 +24,7 @@ export function requireAuth(req, res, next) {
     const session = db.prepare('SELECT id, user_id, expires_at FROM sessions WHERE id = ?').get(sessionToken);
 
     if (!session) {
-      res.clearCookie('mailmind_session', { path: '/' });
+      res.clearCookie('mailmind_session', getClearCookieOptions());
       return res.status(401).json({
         success: false,
         error: 'Invalid or terminated session. Please sign in again.',
@@ -34,7 +35,7 @@ export function requireAuth(req, res, next) {
     // 3. Check expiration (7-day TTL)
     if (session.expires_at < Date.now()) {
       db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionToken);
-      res.clearCookie('mailmind_session', { path: '/' });
+      res.clearCookie('mailmind_session', getClearCookieOptions());
       return res.status(401).json({
         success: false,
         error: 'Session has expired. Please sign in again.',
@@ -51,7 +52,7 @@ export function requireAuth(req, res, next) {
 
     if (!user) {
       db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionToken);
-      res.clearCookie('mailmind_session', { path: '/' });
+      res.clearCookie('mailmind_session', getClearCookieOptions());
       return res.status(401).json({
         success: false,
         error: 'User account not found. Please sign in again.',

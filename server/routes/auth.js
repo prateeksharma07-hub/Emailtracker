@@ -27,11 +27,18 @@ router.use(authLimiter);
 /**
  * Cookie configuration for 7-day session
  */
-const getCookieOptions = () => ({
+export const getCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  path: '/'
+});
+
+export const getClearCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
   path: '/'
 });
 
@@ -72,7 +79,7 @@ router.get('/url', (req, res) => {
  */
 router.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+  const clientUrl = process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5174';
 
   if (error) {
     console.warn('[OAuth Callback] Google authorization error:', error, error_description || '');
@@ -139,7 +146,7 @@ router.get('/me', (req, res) => {
 
     if (!user) {
       db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionToken);
-      res.clearCookie('mailmind_session', { path: '/' });
+      res.clearCookie('mailmind_session', getClearCookieOptions());
       return res.status(401).json({ success: false, authenticated: false, user: null });
     }
 
@@ -214,7 +221,7 @@ router.post('/logout', (req, res) => {
     if (sessionToken) {
       destroySession(sessionToken);
     }
-    res.clearCookie('mailmind_session', { path: '/' });
+    res.clearCookie('mailmind_session', getClearCookieOptions());
     res.json({ success: true, message: 'Logged out successfully.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -230,7 +237,7 @@ router.delete('/me', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     const result = await deleteUserAndData(userId);
-    res.clearCookie('mailmind_session', { path: '/' });
+    res.clearCookie('mailmind_session', getClearCookieOptions());
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -244,7 +251,7 @@ router.post('/disconnect', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     const result = await deleteUserAndData(userId);
-    res.clearCookie('mailmind_session', { path: '/' });
+    res.clearCookie('mailmind_session', getClearCookieOptions());
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
