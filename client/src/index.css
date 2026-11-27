@@ -3,8 +3,102 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Manrope', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Bricolage Grotesque', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ==========================================================================
+   GIANT ENVELOPE THEME PALETTES
+   ========================================================================== */
+
+/* Palette 1: Hot Mail (Default) */
+:root, [data-envelope-palette="1"] {
+  --env-bg: #0D0A0B;
+  --env-surface: #171315;
+  --env-surface-card: #201A1C;
+  --env-ink: #FFF4E0;
+  --env-muted: #A89F91;
+  --env-accent1: #C6FF3D; /* lime */
+  --env-accent2: #FF4D5A; /* coral */
+  --env-accent3: #FF9A3C; /* warm amber */
+  --env-line: rgba(255, 244, 224, 0.12);
+  --env-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+  --env-border-width: 1px;
+  --env-hard-shadow: none;
+  --env-envelope-body: #1C1719;
+  --env-envelope-flap: #282124;
+  --env-envelope-letter: #FFF8ED;
+  --env-envelope-letter-ink: #141012;
+}
+
+/* Palette 2: Sunset Customs */
+[data-envelope-palette="2"] {
+  --env-bg: #1B0B2E;
+  --env-surface: #271440;
+  --env-surface-card: #341B54;
+  --env-ink: #F5EFFB;
+  --env-muted: #A593B8;
+  --env-accent1: #FFB020; /* amber */
+  --env-accent2: #FF2E88; /* magenta */
+  --env-accent3: #19E3C1; /* teal */
+  --env-line: rgba(245, 239, 251, 0.15);
+  --env-shadow: 0 25px 60px -15px rgba(27, 11, 46, 0.85);
+  --env-border-width: 1px;
+  --env-hard-shadow: none;
+  --env-envelope-body: #2B1647;
+  --env-envelope-flap: #3A1F5E;
+  --env-envelope-letter: #FAF5FF;
+  --env-envelope-letter-ink: #1B0B2E;
+}
+
+/* Palette 3: Paper Rocket (Light) */
+[data-envelope-palette="3"] {
+  --env-bg: #FFF1D6;
+  --env-surface: #FFFFFF;
+  --env-surface-card: #FFF8EA;
+  --env-ink: #14121A;
+  --env-muted: #585363;
+  --env-accent1: #FF4B2B; /* tomato */
+  --env-accent2: #FFC83D; /* mustard */
+  --env-accent3: #7CF2C9; /* mint */
+  --env-line: #14121A;
+  --env-shadow: 6px 6px 0px #14121A;
+  --env-border-width: 3px;
+  --env-hard-shadow: 4px 4px 0px #14121A;
+  --env-envelope-body: #FFFDF8;
+  --env-envelope-flap: #FFF8EA;
+  --env-envelope-letter: #FFFFFF;
+  --env-envelope-letter-ink: #14121A;
+}
+
+.font-display {
+  font-family: 'Bricolage Grotesque', system-ui, -apple-system, sans-serif;
+}
+.font-body {
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+}
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes envelope-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+.animate-envelope-float {
+  animation: envelope-float 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-envelope-float {
+    animation: none !important;
+  }
 }
 
 /* ==========================================================================

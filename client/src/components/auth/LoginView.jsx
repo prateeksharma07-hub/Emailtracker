@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import GiantEnvelope from './GiantEnvelope';
+import PaletteSwitcher from './PaletteSwitcher';
 import { 
   Sparkles, 
   ShieldCheck, 
@@ -11,180 +13,620 @@ import {
   Moon, 
   Inbox, 
   FileText, 
-  Layers, 
+  AlertCircle,
+  Eye,
+  ShieldAlert,
+  Users,
+  Check,
+  ChevronRight,
   ArrowRight,
-  AlertCircle
+  Sliders,
+  Send,
+  HelpCircle,
+  FileCheck
 } from 'lucide-react';
 
 export default function LoginView() {
   const { connectGmail, authNotification, clearAuthNotification } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState(null);
 
-  const handleConnect = async () => {
+  // Active palette: 1 = Hot Mail (Dark), 2 = Sunset Customs (Dark), 3 = Paper Rocket (Light)
+  const [activePalette, setActivePalette] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const p = parseInt(params.get('palette'), 10);
+      if ([1, 2, 3].includes(p)) return p;
+      const saved = localStorage.getItem('mailmind_envelope_palette');
+      if (saved && [1, 2, 3].includes(Number(saved))) return Number(saved);
+    }
+    return 1;
+  });
+
+  const handlePaletteChange = (newPalette) => {
+    setActivePalette(newPalette);
     try {
-      setIsConnecting(true);
-      await connectGmail();
-    } catch (err) {
-      setIsConnecting(false);
+      localStorage.setItem('mailmind_envelope_palette', newPalette.toString());
+      const url = new URL(window.location.href);
+      url.searchParams.set('palette', newPalette.toString());
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      // Ignore storage/history issues if sandboxed
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500/30 selection:text-indigo-300 relative overflow-hidden">
-      {/* Background Ambient Glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-indigo-600/15 via-purple-600/10 to-transparent blur-3xl pointer-events-none -z-10" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
+  // Sync palette attribute & dark mode class on document element
+  useEffect(() => {
+    document.documentElement.setAttribute('data-envelope-palette', activePalette.toString());
+    if (activePalette === 3) {
+      document.documentElement.classList.remove('dark');
+    } else {
+      document.documentElement.classList.add('dark');
+    }
+  }, [activePalette]);
 
-      {/* Top Navigation */}
-      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10">
+  // Handle theme toggle button
+  const handleToggleTheme = () => {
+    if (activePalette === 3) {
+      handlePaletteChange(1);
+    } else {
+      handlePaletteChange(3);
+    }
+    toggleTheme();
+  };
+
+  // OAuth connect handler with double-click and state guard
+  const handleConnect = async () => {
+    try {
+      setIsConnecting(true);
+      setConnectError(null);
+      await connectGmail();
+    } catch (err) {
+      setIsConnecting(false);
+      setConnectError(err?.message || 'Failed to initiate Gmail connection.');
+    }
+  };
+
+  const isLight = activePalette === 3;
+
+  // Reusable card styling matching current palette
+  const cardStyle = {
+    backgroundColor: 'var(--env-surface)',
+    borderColor: 'var(--env-line)',
+    borderWidth: isLight ? '3px' : '1px',
+    borderStyle: 'solid',
+    boxShadow: isLight ? '4px 4px 0px #14121A' : '0 12px 36px -8px rgba(0,0,0,0.45)'
+  };
+
+  return (
+    <div 
+      className="min-h-screen flex flex-col justify-between selection:bg-[var(--env-accent1)] selection:text-black relative transition-colors duration-300 font-body"
+      style={{
+        backgroundColor: 'var(--env-bg)',
+        color: 'var(--env-ink)'
+      }}
+    >
+      {/* Background Decorative Postal Grids */}
+      <div 
+        className="absolute inset-0 pointer-events-none opacity-[0.035] -z-10"
+        style={{
+          backgroundImage: `radial-gradient(circle, var(--env-ink) 1px, transparent 1px)`,
+          backgroundSize: '24px 24px'
+        }}
+      />
+
+      {/* Top Header Navigation */}
+      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-20">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 ring-1 ring-white/20">
-            <Sparkles className="w-5 h-5 text-white" />
+          <div 
+            className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-extrabold text-lg shadow-md transition-transform hover:scale-105"
+            style={{
+              backgroundColor: 'var(--env-accent1)',
+              color: isLight ? '#14121A' : '#0D0A0B',
+              border: isLight ? '2px solid #14121A' : 'none',
+              boxShadow: isLight ? '2px 2px 0px #14121A' : undefined
+            }}
+          >
+            ✉
           </div>
           <div>
-            <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
-              MailMind AI
-            </span>
-            <span className="ml-2.5 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              v2.0 Multi-User
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-extrabold tracking-tight font-display" style={{ color: 'var(--env-ink)' }}>
+                MailMind AI
+              </span>
+              <span 
+                className="text-[10px] px-2 py-0.5 rounded-full font-mono uppercase font-bold tracking-wider"
+                style={{
+                  backgroundColor: 'var(--env-surface-card)',
+                  color: 'var(--env-accent1)',
+                  border: `1px solid var(--env-line)`
+                }}
+              >
+                v2.0 Multi-User
+              </span>
+            </div>
+            <p className="text-[11px] font-mono opacity-60 hidden sm:block" style={{ color: 'var(--env-muted)' }}>
+              Verified Email Intelligence & Local Firewall
+            </p>
           </div>
         </div>
 
+        {/* Right Nav: Palette Switcher + Theme Toggle */}
         <div className="flex items-center gap-3">
+          <PaletteSwitcher 
+            activePalette={activePalette}
+            onChangePalette={handlePaletteChange}
+            onToggleTheme={handleToggleTheme}
+            currentTheme={theme}
+          />
+
           <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            onClick={handleToggleTheme}
+            className="p-2 rounded-xl transition-all cursor-pointer"
+            style={{
+              backgroundColor: 'var(--env-surface)',
+              color: 'var(--env-ink)',
+              border: `${isLight ? '2px' : '1px'} solid var(--env-line)`,
+              boxShadow: isLight ? '2px 2px 0px #14121A' : undefined
+            }}
+            title={`Switch to ${isLight ? 'dark' : 'light'} mode`}
+            aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {isLight ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
           </button>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="w-full max-w-5xl mx-auto px-6 py-12 flex flex-col items-center text-center my-auto z-10">
-        {/* Auth Notification Alert if any */}
-        {authNotification && (
-          <div className={`mb-8 w-full max-w-xl p-4 rounded-xl text-sm flex items-start gap-3 border ${
-            authNotification.type === 'error'
-              ? 'bg-rose-950/40 border-rose-500/30 text-rose-300'
-              : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-          }`}>
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="flex-1 text-left">{authNotification.message}</div>
+      {/* Main Hero & Content Flow */}
+      <main className="w-full max-w-6xl mx-auto px-6 py-8 flex flex-col items-center text-center z-10">
+        
+        {/* Error / Auth Notification Banner */}
+        {(authNotification || connectError) && (
+          <div 
+            className="mb-8 w-full max-w-xl p-4 rounded-xl text-sm flex items-start gap-3 border shadow-lg animate-in fade-in slide-in-from-top-2 duration-300"
+            style={{
+              backgroundColor: 'var(--env-surface-card)',
+              borderColor: 'var(--env-accent2)',
+              color: 'var(--env-ink)',
+              boxShadow: isLight ? '4px 4px 0px #14121A' : undefined
+            }}
+          >
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: 'var(--env-accent2)' }} />
+            <div className="flex-1 text-left text-xs leading-relaxed font-body">
+              {connectError || authNotification?.message}
+            </div>
             <button 
-              onClick={clearAuthNotification}
-              className="text-xs opacity-60 hover:opacity-100"
+              onClick={() => {
+                setConnectError(null);
+                if (clearAuthNotification) clearAuthNotification();
+              }}
+              className="text-xs px-2 py-0.5 rounded opacity-60 hover:opacity-100 font-mono"
             >
               ✕
             </button>
           </div>
         )}
 
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-medium mb-6 backdrop-blur-sm">
-          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Autonomous, Zero-Retention Email Intelligence Agent</span>
+        {/* Hero Top Tag / Pill */}
+        <div 
+          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-medium mb-6 backdrop-blur-sm"
+          style={{
+            backgroundColor: 'var(--env-surface-card)',
+            color: 'var(--env-accent1)',
+            border: `1px solid var(--env-line)`
+          }}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--env-accent1)' }} />
+          <span>Local Security Firewall • Best-Effort AI Triage</span>
         </div>
 
-        {/* Hero Headline */}
-        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-3xl leading-[1.15]">
-          Your Inbox, Triage & Reply Drafts{' '}
-          <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400 bg-clip-text text-transparent">
-            Supercharged by AI
+        {/* Main Display Headline */}
+        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight max-w-4xl font-display leading-[1.08]">
+          Your Inbox, Triaged &{' '}
+          <span 
+            className="relative inline-block px-1"
+            style={{ 
+              color: 'var(--env-accent1)',
+              textDecoration: isLight ? 'underline' : 'none'
+            }}
+          >
+            Shielded.
           </span>
+          <br className="hidden sm:inline" />
+          {' '}Every Reply in Your Hands.
         </h1>
 
-        <p className="mt-6 text-lg text-slate-400 max-w-2xl leading-relaxed">
-          MailMind AI connects securely to your Gmail, automatically triages high-priority action items, extracts tasks, shields sensitive credentials locally, and prepares human-approved drafts.
+        {/* Subtitle */}
+        <p 
+          className="mt-6 text-base sm:text-lg max-w-2xl leading-relaxed font-body"
+          style={{ color: 'var(--env-muted)' }}
+        >
+          MailMind AI connects securely to your Gmail. It categorizes incoming mail in milliseconds, screens sensitive credentials locally before AI inference, and drafts human-approved responses. Never sends an email on its own.
         </p>
 
-        {/* Primary Call to Action: Connect with Google */}
-        <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
-          <button
-            onClick={handleConnect}
-            disabled={isConnecting}
-            className="group relative flex items-center gap-3.5 px-8 py-4 rounded-xl bg-white text-slate-900 font-semibold text-base shadow-xl shadow-white/10 hover:shadow-indigo-500/25 hover:bg-slate-100 transition-all duration-200 active:scale-[0.98] disabled:opacity-75 disabled:pointer-events-none cursor-pointer"
-          >
-            {/* Google "G" SVG */}
-            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-              />
-            </svg>
-            <span>{isConnecting ? 'Connecting to Google...' : 'Connect with Google'}</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:translate-x-1 transition-transform" />
-          </button>
+        {/* Giant Envelope Hero Interactive Unit */}
+        <div className="w-full mt-6 flex justify-center">
+          <GiantEnvelope 
+            onConnect={handleConnect}
+            isConnecting={isConnecting}
+            error={connectError || (authNotification?.type === 'error' ? authNotification.message : null)}
+            onClearError={() => {
+              setConnectError(null);
+              if (clearAuthNotification) clearAuthNotification();
+            }}
+            activePalette={activePalette}
+          />
         </div>
 
-        {/* Security & Privacy Architecture */}
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-400">
-          <span className="flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-emerald-400" />
+        {/* Security & Architecture Trust Bar */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs font-mono">
+          <span className="flex items-center gap-1.5 opacity-85">
+            <Lock className="w-3.5 h-3.5" style={{ color: 'var(--env-accent1)' }} />
             AES-256-GCM Token Encryption
           </span>
-          <span className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-            Zero Auto-Send (Human Approval Required)
+          <span className="opacity-40">•</span>
+          <span className="flex items-center gap-1.5 opacity-85">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            0% Auto-Send (You Approve Every Draft)
           </span>
-          <span className="flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            Ultra-Fast Groq LPU Inference
+          <span className="opacity-40">•</span>
+          <span className="flex items-center gap-1.5 opacity-85">
+            <Zap className="w-3.5 h-3.5" style={{ color: 'var(--env-accent2)' }} />
+            Local Credential Shield (Best-Effort)
+          </span>
+          <span className="opacity-40">•</span>
+          <span className="flex items-center gap-1.5 opacity-85">
+            <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--env-accent3)' }} />
+            Groq LPU High-Speed Inference
           </span>
         </div>
 
-        {/* Feature Grid */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 w-full text-left">
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
-              <Inbox className="w-5 h-5" />
+        {/* Capability Pillars Section (4 Rich Feature Cards) */}
+        <section className="mt-24 w-full text-left">
+          <div className="text-center mb-12">
+            <div 
+              className="inline-block px-3 py-1 rounded-full text-[11px] font-mono uppercase font-bold tracking-widest mb-3"
+              style={{
+                backgroundColor: 'var(--env-surface-card)',
+                color: 'var(--env-accent1)',
+                border: '1px solid var(--env-line)'
+              }}
+            >
+              Architecture & Features
             </div>
-            <h3 className="text-base font-semibold text-white">Smart Inbox & Triage</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Auto-categorizes emails into Urgent, Work, Meeting, Tasks, and Newsletters with 1-5 priority scores in milliseconds.
+            <h2 className="text-2xl sm:text-4xl font-extrabold font-display tracking-tight">
+              Four Layers of Intelligence & Safety
+            </h2>
+            <p className="mt-3 text-sm max-w-xl mx-auto font-body" style={{ color: 'var(--env-muted)' }}>
+              Built from day one with deterministic guards so you stay completely in control of your inbox.
             </p>
           </div>
 
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-4">
-              <ShieldCheck className="w-5 h-5" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+            
+            {/* Pillar 1: Checkpoint X-Ray */}
+            <div 
+              className="p-7 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:translate-y-[-2px]"
+              style={cardStyle}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div 
+                    className="w-12 h-12 rounded-xl flex items-center justify-center font-bold"
+                    style={{
+                      backgroundColor: 'var(--env-surface-card)',
+                      color: 'var(--env-accent1)',
+                      border: `1px solid var(--env-line)`
+                    }}
+                  >
+                    <Eye className="w-6 h-6" />
+                  </div>
+                  <span className="text-[11px] font-mono uppercase font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: 'var(--env-surface-card)', color: 'var(--env-muted)' }}>
+                    Pillar 01
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold font-display tracking-tight mb-2">
+                  Checkpoint X-Ray Inspector
+                </h3>
+                <p className="text-sm font-body leading-relaxed mb-6" style={{ color: 'var(--env-muted)' }}>
+                  Inspect exactly why an email was classified with deterministic urgency scoring (1–5) and extracted action items. Sensitive credentials (passwords, OTPs) are screened locally so private data stays private.
+                </p>
+              </div>
+
+              {/* Sample Mini Mockup */}
+              <div 
+                className="p-4 rounded-xl text-xs font-mono border"
+                style={{
+                  backgroundColor: 'var(--env-surface-card)',
+                  borderColor: 'var(--env-line)'
+                }}
+              >
+                <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--env-line)' }}>
+                  <span className="font-bold opacity-80">Subject: Security Architecture Review</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ backgroundColor: 'var(--env-accent1)', color: '#0D0A0B' }}>
+                    PRIORITY 5
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-[11px] opacity-75">
+                  <span className="flex items-center gap-1.5 text-emerald-500 font-semibold">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Sensitive Mail Shield: Clean
+                  </span>
+                  <span>Category: Work</span>
+                </div>
+              </div>
             </div>
-            <h3 className="text-base font-semibold text-white">Privacy Guard Protocol</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Detects OTPs, passwords, and banking info locally. Sensitive payloads are never sent to external AI servers.
+
+            {/* Pillar 2: Regret Shield */}
+            <div 
+              className="p-7 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:translate-y-[-2px]"
+              style={cardStyle}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div 
+                    className="w-12 h-12 rounded-xl flex items-center justify-center font-bold"
+                    style={{
+                      backgroundColor: 'var(--env-surface-card)',
+                      color: 'var(--env-accent2)',
+                      border: `1px solid var(--env-line)`
+                    }}
+                  >
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <span className="text-[11px] font-mono uppercase font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: 'var(--env-surface-card)', color: 'var(--env-muted)' }}>
+                    Pillar 02
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold font-display tracking-tight mb-2">
+                  Regret Shield (Pre-Send Defense)
+                </h3>
+                <p className="text-sm font-body leading-relaxed mb-6" style={{ color: 'var(--env-muted)' }}>
+                  Prevents costly email blunders before drafts are created. Analyzes drafts for forgotten attachments, passive-aggressive phrasing, leaked secrets, or risky impulsive replies.
+                </p>
+              </div>
+
+              {/* Sample Mini Mockup */}
+              <div 
+                className="p-4 rounded-xl text-xs font-mono border"
+                style={{
+                  backgroundColor: 'var(--env-surface-card)',
+                  borderColor: 'var(--env-line)'
+                }}
+              >
+                <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--env-line)' }}>
+                  <span className="font-bold flex items-center gap-1.5" style={{ color: 'var(--env-accent2)' }}>
+                    <AlertCircle className="w-3.5 h-3.5" /> Missing Attachment Warning
+                  </span>
+                  <span className="text-[10px] opacity-60">Pre-Flight Guard</span>
+                </div>
+                <div className="mt-2 text-[11px] opacity-75">
+                  Detected "I have attached the updated contract" but no file was attached. Draft held for confirmation.
+                </div>
+              </div>
+            </div>
+
+            {/* Pillar 3: Sender Trust Memory */}
+            <div 
+              className="p-7 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:translate-y-[-2px]"
+              style={cardStyle}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div 
+                    className="w-12 h-12 rounded-xl flex items-center justify-center font-bold"
+                    style={{
+                      backgroundColor: 'var(--env-surface-card)',
+                      color: 'var(--env-accent3)',
+                      border: `1px solid var(--env-line)`
+                    }}
+                  >
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <span className="text-[11px] font-mono uppercase font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: 'var(--env-surface-card)', color: 'var(--env-muted)' }}>
+                    Pillar 03
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold font-display tracking-tight mb-2">
+                  Sender Trust Memory
+                </h3>
+                <p className="text-sm font-body leading-relaxed mb-6" style={{ color: 'var(--env-muted)' }}>
+                  Builds deterministic trust profiles across your communication network. Colleagues with high interaction history get trusted status, while unfamiliar domains receive extra safety verification.
+                </p>
+              </div>
+
+              {/* Sample Mini Mockup */}
+              <div 
+                className="p-4 rounded-xl text-xs font-mono border"
+                style={{
+                  backgroundColor: 'var(--env-surface-card)',
+                  borderColor: 'var(--env-line)'
+                }}
+              >
+                <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--env-line)' }}>
+                  <span className="font-bold opacity-80">Sender: alex@partner.io</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold text-emerald-500 bg-emerald-500/10">
+                    TRUST SCORE: 94
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-[11px] opacity-75">
+                  <span>Known Senders Database</span>
+                  <span>28 Successful Threads</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Pillar 4: Human-in-the-Loop Cockpit */}
+            <div 
+              className="p-7 rounded-2xl flex flex-col justify-between transition-all duration-300 hover:translate-y-[-2px]"
+              style={cardStyle}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div 
+                    className="w-12 h-12 rounded-xl flex items-center justify-center font-bold"
+                    style={{
+                      backgroundColor: 'var(--env-surface-card)',
+                      color: 'var(--env-accent1)',
+                      border: `1px solid var(--env-line)`
+                    }}
+                  >
+                    <FileCheck className="w-6 h-6" />
+                  </div>
+                  <span className="text-[11px] font-mono uppercase font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: 'var(--env-surface-card)', color: 'var(--env-muted)' }}>
+                    Pillar 04
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold font-display tracking-tight mb-2">
+                  Human-in-the-Loop Cockpit
+                </h3>
+                <p className="text-sm font-body leading-relaxed mb-6" style={{ color: 'var(--env-muted)' }}>
+                  You retain complete authority. AI crafts contextual reply drafts that you inspect, edit, or adjust before approving. Approved drafts are synced directly into your Gmail drafts folder.
+                </p>
+              </div>
+
+              {/* Sample Mini Mockup */}
+              <div 
+                className="p-4 rounded-xl text-xs font-mono border"
+                style={{
+                  backgroundColor: 'var(--env-surface-card)',
+                  borderColor: 'var(--env-line)'
+                }}
+              >
+                <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--env-line)' }}>
+                  <span className="font-bold opacity-80">Draft Ready for Review</span>
+                  <span className="text-[10px] font-semibold text-amber-500">Awaiting Approval</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-[11px]">
+                  <span className="opacity-75">"Thanks for the update. Let's proceed with..."</span>
+                  <span className="font-bold underline cursor-pointer" style={{ color: 'var(--env-accent1)' }}>
+                    [Approve & Push]
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        {/* How It Works Flow (3 Straightforward Steps) */}
+        <section className="mt-24 w-full text-center">
+          <div 
+            className="inline-block px-3 py-1 rounded-full text-[11px] font-mono uppercase font-bold tracking-widest mb-3"
+            style={{
+              backgroundColor: 'var(--env-surface-card)',
+              color: 'var(--env-accent1)',
+              border: '1px solid var(--env-line)'
+            }}
+          >
+            Simple Workflow
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-extrabold font-display tracking-tight mb-12">
+            How MailMind AI Operates
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+            <div className="p-6 rounded-2xl" style={cardStyle}>
+              <div className="text-2xl font-extrabold font-mono mb-3" style={{ color: 'var(--env-accent1)' }}>
+                01
+              </div>
+              <h4 className="font-bold text-base font-display mb-1.5">Secure OAuth 2.0</h4>
+              <p className="text-xs font-body leading-relaxed" style={{ color: 'var(--env-muted)' }}>
+                Sign in with Google using minimal required permissions. We request only access to read unread mail and create drafts—no calendar or contact scopes.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl" style={cardStyle}>
+              <div className="text-2xl font-extrabold font-mono mb-3" style={{ color: 'var(--env-accent2)' }}>
+                02
+              </div>
+              <h4 className="font-bold text-base font-display mb-1.5">Triage & Local Shield</h4>
+              <p className="text-xs font-body leading-relaxed" style={{ color: 'var(--env-muted)' }}>
+                Incoming emails are evaluated locally. Sensitive credentials are kept away from external AI, while action items and drafts are prepared via Groq.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl" style={cardStyle}>
+              <div className="text-2xl font-extrabold font-mono mb-3" style={{ color: 'var(--env-accent3)' }}>
+                03
+              </div>
+              <h4 className="font-bold text-base font-display mb-1.5">Review & Approve</h4>
+              <p className="text-xs font-body leading-relaxed" style={{ color: 'var(--env-muted)' }}>
+                Nothing leaves without you. You inspect the generated draft in your cockpit, customize if needed, and push it directly into Gmail drafts.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Clear Trust & Privacy FAQ */}
+        <section className="mt-24 w-full text-left max-w-4xl">
+          <div className="text-center mb-10">
+            <h3 className="text-2xl sm:text-3xl font-extrabold font-display tracking-tight">
+              Privacy & Trust Clarifications
+            </h3>
+            <p className="mt-2 text-xs font-mono" style={{ color: 'var(--env-muted)' }}>
+              Deterministic transparency • Zero auto-send
             </p>
           </div>
 
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4">
-              <FileText className="w-5 h-5" />
+          <div className="space-y-4">
+            <div className="p-5 rounded-xl" style={cardStyle}>
+              <h5 className="font-bold text-sm font-display mb-1.5 flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" style={{ color: 'var(--env-accent1)' }} />
+                Does MailMind ever send emails on its own?
+              </h5>
+              <p className="text-xs font-body leading-relaxed pl-6" style={{ color: 'var(--env-muted)' }}>
+                Never. MailMind has 0% auto-send capability. Every outgoing draft is either placed in your Gmail Drafts folder or requires your explicit review and approval in the app cockpit.
+              </p>
             </div>
-            <h3 className="text-base font-semibold text-white">Human-in-the-Loop Drafts</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Generates high-context reply drafts. You inspect, edit, and click "Approve & Push" into your Gmail Drafts.
-            </p>
+
+            <div className="p-5 rounded-xl" style={cardStyle}>
+              <h5 className="font-bold text-sm font-display mb-1.5 flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" style={{ color: 'var(--env-accent2)' }} />
+                How are sensitive credentials and OTPs protected?
+              </h5>
+              <p className="text-xs font-body leading-relaxed pl-6" style={{ color: 'var(--env-muted)' }}>
+                Sensitive mail containing passwords, OTPs, or banking tokens is kept away from the AI using best-effort local screening filters. All stored OAuth tokens are encrypted at rest with AES-256-GCM.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-xl" style={cardStyle}>
+              <h5 className="font-bold text-sm font-display mb-1.5 flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" style={{ color: 'var(--env-accent3)' }} />
+                Can I switch themes or palettes at any time?
+              </h5>
+              <p className="text-xs font-body leading-relaxed pl-6" style={{ color: 'var(--env-muted)' }}>
+                Yes! You can use the Palette Switcher in the top navigation, or tap the <kbd className="px-1.5 py-0.5 rounded font-mono font-bold text-[10px] border">P</kbd> key on your keyboard to instantly cycle between Hot Mail, Sunset Customs, and Paper Rocket.
+              </p>
+            </div>
           </div>
-        </div>
+        </section>
+
       </main>
 
       {/* Footer */}
-      <footer className="w-full border-t border-slate-900 py-6 text-center text-xs text-slate-400 z-10">
-        <p>MailMind AI • Minimum Permissions OAuth 2.0 • Data isolated per user</p>
+      <footer 
+        className="w-full py-8 mt-20 text-center text-xs font-mono border-t z-10 transition-colors"
+        style={{
+          borderColor: 'var(--env-line)',
+          color: 'var(--env-muted)'
+        }}
+      >
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-bold font-display text-sm" style={{ color: 'var(--env-ink)' }}>MailMind AI</span>
+            <span>•</span>
+            <span>Deterministic Email Firewall</span>
+          </div>
+
+          <div className="text-[11px] opacity-75">
+            Minimal OAuth Scopes • Sensitive Mail Kept Away from AI (Best-Effort) • You Approve Every Draft
+          </div>
+
+          <div className="text-[10px] opacity-60">
+            Press [P] to Switch Palette
+          </div>
+        </div>
       </footer>
     </div>
   );
