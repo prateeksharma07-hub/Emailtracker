@@ -3,248 +3,126 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display: 'Bricolage Grotesque', system-ui, -apple-system, sans-serif;
+  --font-body: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --font-typewriter: 'Special Elite', monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 /* ==========================================================================
-   MAILMIND AI — DESIGN TOKEN SYSTEM (CSS Variables)
+   MAILMIND AI — "THE SORTING ROOM" DESIGN SYSTEM TOKENS
    ========================================================================== */
 
-:root {
-  /* Surface & Canvas (Cream Luxe Light) */
-  --bg-canvas: #FAF8F5;
-  --bg-surface: #FFFFFF;
-  --bg-surface-elevated: #F5F1EB;
-  --bg-surface-glass: rgba(255, 255, 255, 0.82);
-  
-  /* Borders */
-  --border-subtle: #E8E3DA;
-  --border-medium: #D8D1C5;
-  --border-focus: #7C3AED;
+:root, [data-theme="day"] {
+  /* Day Post Office (Light) */
+  --bg-canvas: #F4EBDD;
+  --bg-surface: #FBF6EC;
+  --bg-surface-elevated: #FFFFFF;
+  --color-line: #D9CBB3;
+  --color-line-strong: #B8A488;
+  --color-ink: #1B1815;
+  --color-muted: #6B5F50;
 
-  /* Typography / Text */
-  --text-primary: #111827;
-  --text-secondary: #4B5563;
-  --text-muted: #8896A6;
-  --text-inverse: #FFFFFF;
+  --color-red: #C8321A;
+  --color-red-surface: rgba(200, 50, 26, 0.08);
+  --color-teal: #0F766E;
+  --color-teal-surface: rgba(15, 118, 110, 0.08);
 
-  /* Multicolour Palette Accents */
-  --color-violet: #7C3AED;
-  --color-violet-light: #F5F3FF;
-  --color-violet-border: #DDD6FE;
-  
-  --color-lavender: #A78BFA;
-  --color-lavender-bg: #EDE9FE;
+  --status-cleared: #137A47;
+  --status-cleared-surface: rgba(19, 122, 71, 0.1);
+  --status-suspicious: #A86A00;
+  --status-suspicious-surface: rgba(168, 106, 0, 0.1);
+  --status-detained: #C8321A;
+  --status-detained-surface: rgba(200, 50, 26, 0.1);
 
-  --color-coral: #F97316;
-  --color-coral-light: #FFF7ED;
-  --color-coral-border: #FED7AA;
+  --shadow-offset: 3px 3px 0px #1B1815;
+  --shadow-offset-hover: 4px 4px 0px #1B1815;
+  --shadow-offset-active: 1px 1px 0px #1B1815;
+  --shadow-card: 3px 3px 0px #1B1815;
 
-  --color-peach: #FB7185;
-  --color-peach-light: #FFF1F2;
-  --color-peach-border: #FECDD3;
-
-  --color-mint: #10B981;
-  --color-mint-light: #ECFDF5;
-  --color-mint-border: #A7F3D0;
-
-  --color-amber: #F59E0B;
-  --color-amber-light: #FFFBEB;
-  --color-amber-border: #FDE68A;
-
-  --color-cyan: #06B6D4;
-  --color-cyan-light: #ECFEFF;
-
-  /* Shadows */
-  --shadow-card: 0 4px 20px -2px rgba(17, 24, 39, 0.05), 0 2px 6px -1px rgba(17, 24, 39, 0.02);
-  --shadow-elevated: 0 12px 32px -4px rgba(17, 24, 39, 0.08), 0 4px 12px -2px rgba(17, 24, 39, 0.04);
+  /* Backward Compatibility Aliases for App.jsx components */
+  --bg-elevated: #FFFFFF;
+  --border-subtle: #D9CBB3;
+  --border-medium: #B8A488;
+  --text-primary: #1B1815;
+  --text-secondary: #6B5F50;
+  --text-muted: #887B6A;
 }
 
-.dark {
-  /* Surface & Canvas (Obsidian Deep Space) */
-  --bg-canvas: #08090E;
-  --bg-surface: #10131E;
-  --bg-surface-elevated: #161A28;
-  --bg-surface-glass: rgba(16, 19, 30, 0.78);
+.dark, [data-theme="night"] {
+  /* Night Sorting Room (Dark) */
+  --bg-canvas: #12100E;
+  --bg-surface: #1B1815;
+  --bg-surface-elevated: #24201C;
+  --color-line: #2C2722;
+  --color-line-strong: #453E35;
+  --color-ink: #F4EBDD;
+  --color-muted: #B7A995;
 
-  /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-medium: rgba(255, 255, 255, 0.14);
-  --border-focus: #A78BFA;
+  --color-red: #FF4B2B;
+  --color-red-surface: rgba(255, 75, 43, 0.12);
+  --color-teal: #2DD4BF;
+  --color-teal-surface: rgba(45, 212, 191, 0.12);
 
-  /* Typography / Text */
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  --text-inverse: #08090E;
+  --status-cleared: #2FBF71;
+  --status-cleared-surface: rgba(47, 191, 113, 0.14);
+  --status-suspicious: #F2A81D;
+  --status-suspicious-surface: rgba(242, 168, 29, 0.14);
+  --status-detained: #FF4B2B;
+  --status-detained-surface: rgba(255, 75, 43, 0.15);
 
-  /* Dark Theme Accents */
-  --color-violet: #8B5CF6;
-  --color-violet-light: rgba(139, 92, 246, 0.15);
-  --color-violet-border: rgba(139, 92, 246, 0.35);
+  --shadow-offset: 3px 3px 0px rgba(0, 0, 0, 0.7);
+  --shadow-offset-hover: 4px 4px 0px rgba(0, 0, 0, 0.85);
+  --shadow-offset-active: 1px 1px 0px rgba(0, 0, 0, 0.9);
+  --shadow-card: 0 10px 30px -8px rgba(0, 0, 0, 0.7);
 
-  --color-lavender: #C4B5FD;
-  --color-lavender-bg: rgba(196, 181, 253, 0.12);
-
-  --color-coral: #FB923C;
-  --color-coral-light: rgba(251, 146, 60, 0.14);
-  --color-coral-border: rgba(251, 146, 60, 0.35);
-
-  --color-peach: #FDA4AF;
-  --color-peach-light: rgba(253, 164, 175, 0.14);
-  --color-peach-border: rgba(253, 164, 175, 0.35);
-
-  --color-mint: #34D399;
-  --color-mint-light: rgba(52, 211, 153, 0.14);
-  --color-mint-border: rgba(52, 211, 153, 0.35);
-
-  --color-amber: #FBBF24;
-  --color-amber-light: rgba(251, 191, 36, 0.14);
-  --color-amber-border: rgba(251, 191, 36, 0.35);
-
-  --color-cyan: #22D3EE;
-  --color-cyan-light: rgba(34, 211, 238, 0.14);
-
-  /* Shadows */
-  --shadow-card: 0 4px 24px -2px rgba(0, 0, 0, 0.45);
-  --shadow-elevated: 0 16px 40px -4px rgba(0, 0, 0, 0.65);
+  /* Backward Compatibility Aliases for App.jsx components */
+  --bg-elevated: #24201C;
+  --border-subtle: #2C2722;
+  --border-medium: #453E35;
+  --text-primary: #F4EBDD;
+  --text-secondary: #B7A995;
+  --text-muted: #857867;
 }
 
-@layer base {
-  body {
-    background-color: var(--bg-canvas);
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
-    min-height: 100vh;
-    overflow-x: hidden;
-    transition: background-color 0.25s ease, color 0.25s ease;
+/* Typography Utility Classes */
+.font-display {
+  font-family: 'Bricolage Grotesque', system-ui, -apple-system, sans-serif;
+}
+.font-body {
+  font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+}
+.font-typewriter {
+  font-family: 'Special Elite', monospace;
+}
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Floating Envelope Idle Animation */
+@keyframes envelope-hover-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(0.5deg);
   }
 }
 
-/* Glassmorphism Surface Utility */
-.glass-card {
-  background: var(--bg-surface-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-card);
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+.animate-sorting-float {
+  animation: envelope-hover-float 4s ease-in-out infinite;
 }
 
-.glass-card:hover {
-  border-color: var(--border-medium);
+/* Reduced Motion Enforcement */
+@media (prefers-reduced-motion: reduce) {
+  .animate-sorting-float {
+    animation: none !important;
+  }
 }
 
-/* Fluid Multicolour Text Gradient */
-.text-gradient-aurora {
-  background: linear-gradient(135deg, #7C3AED 0%, #D946EF 30%, #F97316 70%, #10B981 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.dark .text-gradient-aurora {
-  background: linear-gradient(135deg, #C084FC 0%, #F472B6 30%, #FB923C 70%, #34D399 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Buttons */
-.btn-primary {
-  background: linear-gradient(135deg, #7C3AED 0%, #C026D3 50%, #EA580C 100%);
-  color: #FFFFFF;
-  font-weight: 700;
-  border-radius: 1rem;
-  padding: 0.75rem 1.5rem;
-  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.35);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.btn-primary:hover {
-  transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 14px 30px -5px rgba(124, 58, 237, 0.45);
-}
-
-.btn-secondary {
-  background-color: var(--bg-surface);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  font-weight: 600;
-  border-radius: 0.875rem;
-  padding: 0.625rem 1.25rem;
-  transition: all 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.btn-secondary:hover {
-  background-color: var(--bg-surface-elevated);
-  border-color: var(--border-medium);
-}
-
-/* Category Badges */
-.badge-urgent {
-  background-color: var(--color-coral-light);
-  color: var(--color-coral);
-  border: 1px solid var(--color-coral-border);
-}
-
-.badge-work {
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #6366F1;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-}
-
-.badge-meeting {
-  background-color: var(--color-amber-light);
-  color: var(--color-amber);
-  border: 1px solid var(--color-amber-border);
-}
-
-.badge-task {
-  background-color: var(--color-violet-light);
-  color: var(--color-violet);
-  border: 1px solid var(--color-violet-border);
-}
-
-.badge-personal {
-  background-color: var(--color-mint-light);
-  color: var(--color-mint);
-  border: 1px solid var(--color-mint-border);
-}
-
-.badge-newsletter {
-  background-color: var(--color-cyan-light);
-  color: var(--color-cyan);
-  border: 1px solid rgba(6, 182, 212, 0.3);
-}
-
-.badge-other {
-  background-color: rgba(148, 163, 184, 0.12);
-  color: #64748B;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--text-muted);
-  opacity: 0.3;
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  opacity: 0.6;
+.reduced-motion .animate-sorting-float,
+.reduced-motion * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
 }

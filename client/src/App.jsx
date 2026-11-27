@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { useTheme } from './context/ThemeContext';
 import { apiFetch } from './utils/api';
 import LoginView from './components/auth/LoginView';
+import DesignShowcase from './design/DesignShowcase';
 import { 
   Inbox, 
   Sparkles, 
@@ -228,6 +229,27 @@ export default function App() {
     setPriorityFilter(priority);
     setCurrentPage(1);
   };
+
+  // Dev-only route for Design System showcase: /design or #design
+  const [isDesignRoute, setIsDesignRoute] = useState(() => {
+    return typeof window !== 'undefined' && (window.location.pathname === '/design' || window.location.hash === '#design');
+  });
+
+  useEffect(() => {
+    const handleRoute = () => {
+      setIsDesignRoute(window.location.pathname === '/design' || window.location.hash === '#design');
+    };
+    window.addEventListener('hashchange', handleRoute);
+    window.addEventListener('popstate', handleRoute);
+    return () => {
+      window.removeEventListener('hashchange', handleRoute);
+      window.removeEventListener('popstate', handleRoute);
+    };
+  }, []);
+
+  if (isDesignRoute) {
+    return <DesignShowcase />;
+  }
 
   // Loading State
   if (isLoading) {

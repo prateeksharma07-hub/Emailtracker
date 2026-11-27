@@ -1,190 +1,440 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../design/ThemeProvider';
+import SortingEnvelope from './SortingEnvelope';
+import CheckpointLoopTile from './CheckpointLoopTile';
+import Stamp from '../../design/primitives/Stamp';
+import Postmark from '../../design/primitives/Postmark';
+import Button from '../../design/primitives/Button';
+import Panel from '../../design/primitives/Panel';
+import SectionLabel from '../../design/primitives/SectionLabel';
+import PerforatedDivider from '../../design/primitives/PerforatedDivider';
 import { 
-  Sparkles, 
   ShieldCheck, 
   Lock, 
   Zap, 
-  CheckCircle2, 
   Sun, 
   Moon, 
   Inbox, 
   FileText, 
-  Layers, 
+  AlertCircle,
+  Eye,
+  ShieldAlert,
+  Users,
+  CheckCircle2,
+  Calendar,
+  Mic,
   ArrowRight,
-  AlertCircle
+  Sliders,
+  HelpCircle,
+  ExternalLink
 } from 'lucide-react';
 
 export default function LoginView() {
   const { connectGmail, authNotification, clearAuthNotification } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, reduceMotion, toggleReduceMotion } = useTheme();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState(null);
 
+  // Exact OAuth handshake handler preserved from AuthContext
   const handleConnect = async () => {
     try {
       setIsConnecting(true);
+      setConnectError(null);
       await connectGmail();
     } catch (err) {
       setIsConnecting(false);
+      setConnectError(err?.message || 'Failed to initiate Gmail connection.');
     }
   };
 
+  const isNight = theme === 'night' || theme === 'dark';
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500/30 selection:text-indigo-300 relative overflow-hidden">
-      {/* Background Ambient Glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-indigo-600/15 via-purple-600/10 to-transparent blur-3xl pointer-events-none -z-10" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
-
-      {/* Top Navigation */}
-      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 ring-1 ring-white/20">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
-              MailMind AI
-            </span>
-            <span className="ml-2.5 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              v2.0 Multi-User
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="w-full max-w-5xl mx-auto px-6 py-12 flex flex-col items-center text-center my-auto z-10">
-        {/* Auth Notification Alert if any */}
-        {authNotification && (
-          <div className={`mb-8 w-full max-w-xl p-4 rounded-xl text-sm flex items-start gap-3 border ${
-            authNotification.type === 'error'
-              ? 'bg-rose-950/40 border-rose-500/30 text-rose-300'
-              : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-          }`}>
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="flex-1 text-left">{authNotification.message}</div>
-            <button 
-              onClick={clearAuthNotification}
-              className="text-xs opacity-60 hover:opacity-100"
+    <div 
+      className="min-h-[100dvh] flex flex-col justify-between selection:bg-[var(--color-red)] selection:text-white font-body relative overflow-x-hidden transition-colors duration-200"
+      style={{
+        backgroundColor: 'var(--bg-canvas)',
+        color: 'var(--color-ink)'
+      }}
+    >
+      {/* =========================================================================
+          HERO & ABOVE-THE-FOLD CONTAINER (Fits 1440x900, 1366x768, 390x844 in 100dvh)
+          ========================================================================= */}
+      <div className="w-full flex flex-col justify-between min-h-[100dvh] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-5">
+        
+        {/* Top Header Navigation */}
+        <header className="w-full flex items-center justify-between pb-3 border-b-2 border-dashed border-[var(--color-line-strong)] z-20">
+          <div className="flex items-center gap-2.5">
+            <div 
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center font-typewriter font-bold text-sm select-none border-2 border-[var(--color-ink)]"
+              style={{
+                backgroundColor: 'var(--color-red)',
+                color: '#FFFFFF'
+              }}
             >
-              ✕
+              ✉
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base sm:text-lg font-extrabold tracking-tight font-display uppercase">
+                  MAILMIND // SORTING ROOM
+                </span>
+                <span className="hidden sm:inline text-[9px] font-mono px-1.5 py-0.5 border border-current opacity-70">
+                  DISPATCH BUREAU
+                </span>
+              </div>
+              <p className="text-[10px] font-mono opacity-60 hidden md:block" style={{ color: 'var(--color-muted)' }}>
+                Deterministic AI Email Firewall & Quarantine
+              </p>
+            </div>
+          </div>
+
+          {/* Right Header Controls: Dev Route + Theme + Reduce Motion */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Dev route link to /design */}
+            <a
+              href="#design"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.hash = '#design';
+              }}
+              className="text-[11px] font-mono font-semibold px-2 py-1 border border-[var(--color-line-strong)] hover:border-[var(--color-ink)] transition-colors hidden sm:inline"
+              title="Inspect Design System components"
+            >
+              /design
+            </a>
+
+            {/* Reduce Motion Toggle */}
+            <button
+              type="button"
+              onClick={toggleReduceMotion}
+              className="p-1.5 sm:px-2.5 sm:py-1.5 border-2 border-[var(--color-ink)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-elevated)] cursor-pointer text-xs font-mono flex items-center gap-1.5 shadow-[var(--shadow-offset)] active:translate-x-[1px] active:translate-y-[1px] transition-all min-h-[44px]"
+              title={`Reduce Motion: ${reduceMotion ? 'Enabled' : 'Disabled'}`}
+              aria-label="Toggle reduce motion mode"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span className="hidden md:inline font-bold">
+                Motion: {reduceMotion ? 'OFF' : 'ON'}
+              </span>
+            </button>
+
+            {/* Night / Day Theme Toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-1.5 sm:px-2.5 sm:py-1.5 border-2 border-[var(--color-ink)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-elevated)] cursor-pointer text-xs font-mono flex items-center gap-1.5 shadow-[var(--shadow-offset)] active:translate-x-[1px] active:translate-y-[1px] transition-all min-h-[44px]"
+              title={`Switch to ${isNight ? 'Day Post Office' : 'Night Sorting Room'}`}
+              aria-label="Toggle Night/Day theme"
+            >
+              {isNight ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5" />}
+              <span className="hidden md:inline font-bold">
+                {isNight ? 'Day' : 'Night'}
+              </span>
+            </button>
+          </div>
+        </header>
+
+        {/* Auth Notification or Connect Error Alert */}
+        {(authNotification || connectError) && (
+          <div 
+            className="w-full my-2 p-3 border-2 border-[var(--color-red)] bg-[var(--color-red-surface)] text-xs font-mono flex items-start gap-2 shadow-sm animate-in fade-in"
+            style={{ color: 'var(--color-red)' }}
+          >
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex-1 font-body text-xs">
+              {connectError || authNotification?.message}
+            </div>
+            <button
+              onClick={() => {
+                setConnectError(null);
+                if (clearAuthNotification) clearAuthNotification();
+              }}
+              className="text-xs px-2 py-0.5 border border-current font-mono hover:opacity-100 opacity-60"
+            >
+              DISMISS
             </button>
           </div>
         )}
 
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-medium mb-6 backdrop-blur-sm">
-          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Autonomous, Zero-Retention Email Intelligence Agent</span>
-        </div>
+        {/* Hero Area: ASYMMETRIC 2-COLUMN LAYOUT (Not a centered stack!) */}
+        <div className="my-auto py-2 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+          
+          {/* Left Column: Asymmetric Typography & Copy (7 cols on lg) */}
+          <div className="lg:col-span-7 flex flex-col items-start text-left">
+            
+            <SectionLabel 
+              number="01" 
+              title="AI EMAIL FIREWALL" 
+              className="mb-3 sm:mb-4"
+            />
 
-        {/* Hero Headline */}
-        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-3xl leading-[1.15]">
-          Your Inbox, Triage & Reply Drafts{' '}
-          <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400 bg-clip-text text-transparent">
-            Supercharged by AI
-          </span>
-        </h1>
+            {/* Headline: clamp(1.9rem, 3.4vw, 3.25rem), text-wrap balance, 1 line on desktop, max 2 on mobile */}
+            <h1 
+              className="font-extrabold font-display tracking-tight text-[var(--color-ink)] leading-[1.08] text-balance"
+              style={{
+                fontSize: 'clamp(1.9rem, 3.4vw, 3.25rem)'
+              }}
+            >
+              Open the envelope. Keep the AI safe.
+            </h1>
 
-        <p className="mt-6 text-lg text-slate-400 max-w-2xl leading-relaxed">
-          MailMind AI connects securely to your Gmail, automatically triages high-priority action items, extracts tasks, shields sensitive credentials locally, and prepares human-approved drafts.
-        </p>
-
-        {/* Primary Call to Action: Connect with Google */}
-        <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
-          <button
-            onClick={handleConnect}
-            disabled={isConnecting}
-            className="group relative flex items-center gap-3.5 px-8 py-4 rounded-xl bg-white text-slate-900 font-semibold text-base shadow-xl shadow-white/10 hover:shadow-indigo-500/25 hover:bg-slate-100 transition-all duration-200 active:scale-[0.98] disabled:opacity-75 disabled:pointer-events-none cursor-pointer"
-          >
-            {/* Google "G" SVG */}
-            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-              />
-            </svg>
-            <span>{isConnecting ? 'Connecting to Google...' : 'Connect with Google'}</span>
-            <ArrowRight className="w-4 h-4 text-slate-500 group-hover:translate-x-1 transition-transform" />
-          </button>
-        </div>
-
-        {/* Security & Privacy Architecture */}
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-400">
-          <span className="flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-emerald-400" />
-            AES-256-GCM Token Encryption
-          </span>
-          <span className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-            Zero Auto-Send (Human Approval Required)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            Ultra-Fast Groq LPU Inference
-          </span>
-        </div>
-
-        {/* Feature Grid */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 w-full text-left">
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
-              <Inbox className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white">Smart Inbox & Triage</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Auto-categorizes emails into Urgent, Work, Meeting, Tasks, and Newsletters with 1-5 priority scores in milliseconds.
+            {/* Subtitle: max 2 lines (~55ch) */}
+            <p 
+              className="mt-3 sm:mt-4 text-sm sm:text-base leading-relaxed font-body max-w-[55ch]"
+              style={{ color: 'var(--color-muted)' }}
+            >
+              MailMind scans every email for hidden instructions before an AI reads it, prepares your replies in three tones, and never sends anything without your approval.
             </p>
+
+            {/* Quick Postal Badge / Dispatch Metadata */}
+            <div className="mt-4 sm:mt-6 flex flex-wrap items-center gap-3">
+              <Stamp variant="CLEARED" label="CUSTOMS PASS" sublabel="ZERO LEAK DETECTED" rotate={-2} size="sm" />
+              <div className="text-[11px] font-mono opacity-70 flex items-center gap-1.5" style={{ color: 'var(--color-muted)' }}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Quarantine Station Active</span>
+              </div>
+            </div>
           </div>
 
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-4">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white">Privacy Guard Protocol</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Detects OTPs, passwords, and banking info locally. Sensitive payloads are never sent to external AI servers.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 backdrop-blur-sm hover:border-slate-700 transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4">
-              <FileText className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold text-white">Human-in-the-Loop Drafts</h3>
-            <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              Generates high-context reply drafts. You inspect, edit, and click "Approve & Push" into your Gmail Drafts.
-            </p>
+          {/* Right Column: Giant Interactive Envelope Button (5 cols on lg) */}
+          <div className="lg:col-span-5 flex flex-col items-center justify-center">
+            <SortingEnvelope 
+              onConnect={handleConnect}
+              isConnecting={isConnecting}
+              error={connectError || (authNotification?.type === 'error' ? authNotification.message : null)}
+              onClearError={() => {
+                setConnectError(null);
+                if (clearAuthNotification) clearAuthNotification();
+              }}
+            />
           </div>
         </div>
-      </main>
 
-      {/* Footer */}
-      <footer className="w-full border-t border-slate-900 py-6 text-center text-xs text-slate-400 z-10">
-        <p>MailMind AI • Minimum Permissions OAuth 2.0 • Data isolated per user</p>
+        {/* Above-the-Fold Bottom Row: Benefit-First Trust Row */}
+        <div className="w-full pt-3 pb-1 border-t-2 border-dashed border-[var(--color-line-strong)] z-10">
+          <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-4 text-xs font-mono">
+            <span className="flex items-center gap-1.5 font-semibold">
+              <span className="w-1.5 h-1.5 bg-[var(--color-red)] rounded-full" />
+              Never sends on its own
+            </span>
+            <span className="opacity-40 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 font-semibold">
+              <span className="w-1.5 h-1.5 bg-[var(--status-cleared)] rounded-full" />
+              You approve every draft
+            </span>
+            <span className="opacity-40 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 opacity-85">
+              <Lock className="w-3.5 h-3.5" style={{ color: 'var(--color-red)' }} />
+              Tokens encrypted at rest
+            </span>
+            <span className="opacity-40 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 opacity-85">
+              <Zap className="w-3.5 h-3.5" style={{ color: 'var(--color-teal)' }} />
+              Powered by Groq
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      {/* =========================================================================
+          BELOW-THE-FOLD: BENTO GRID (Self-Running Autonomous Loops)
+          ========================================================================= */}
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
+        
+        {/* Bento Header */}
+        <div className="text-left mb-10">
+          <SectionLabel number="02" title="POSTAL INSPECTION COCKPIT" />
+          <h2 className="text-2xl sm:text-4xl font-extrabold font-display tracking-tight mt-3">
+            Every Incoming Letter Inspected. Nothing Sent in the Dark.
+          </h2>
+          <p className="mt-2 text-sm max-w-2xl font-body" style={{ color: 'var(--color-muted)' }}>
+            Plainspoken protections that guard your email without jargon. Watch each protocol run below.
+          </p>
+        </div>
+
+        {/* Bento Grid Container */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          
+          {/* Tile 1: Big Checkpoint Loop (Spans 2 columns on lg) */}
+          <div className="md:col-span-2 lg:col-span-2">
+            <CheckpointLoopTile />
+          </div>
+
+          {/* Tile 2: Autopilot Replies */}
+          <Panel className="flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-[var(--bg-canvas)] border border-[var(--color-line-strong)]">
+                  PROTOCOL 02
+                </span>
+                <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                  3-TONE DRAFTING
+                </span>
+              </div>
+              <h3 className="text-xl font-bold font-display mb-2">Autopilot Replies</h3>
+              <p className="text-xs sm:text-sm font-body leading-relaxed opacity-80" style={{ color: 'var(--color-muted)' }}>
+                Prof. asks you to confirm Thursday. You get 3 replies; nothing is sent until you click Approve.
+              </p>
+            </div>
+
+            {/* Concrete Sample Card */}
+            <div className="mt-6 p-3 border-2 border-[var(--color-line-strong)] bg-[var(--bg-canvas)] text-xs font-body">
+              <div className="font-mono text-[10px] font-bold text-amber-500 mb-1 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" /> AWAITING YOUR APPROVAL
+              </div>
+              <div className="space-y-1.5 text-[11px]">
+                <div className="p-1.5 border border-[var(--color-line)] bg-[var(--bg-surface)]">
+                  <span className="font-mono font-bold text-[9px] uppercase">1. Professional: </span>
+                  "I confirm my availability for Thursday at 3 PM."
+                </div>
+                <div className="p-1.5 border border-[var(--color-line)] bg-[var(--bg-surface)]">
+                  <span className="font-mono font-bold text-[9px] uppercase">2. Concise: </span>
+                  "Confirmed for Thursday 3 PM."
+                </div>
+              </div>
+            </div>
+          </Panel>
+
+          {/* Tile 3: Regret Shield */}
+          <Panel className="flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-[var(--bg-canvas)] border border-[var(--color-line-strong)]">
+                  PROTOCOL 03
+                </span>
+                <span className="font-mono text-[10px] text-rose-500 font-semibold">
+                  PRE-FLIGHT DEFENSE
+                </span>
+              </div>
+              <h3 className="text-xl font-bold font-display mb-2">Regret Shield</h3>
+              <p className="text-xs sm:text-sm font-body leading-relaxed opacity-80" style={{ color: 'var(--color-muted)' }}>
+                Draft says "please find attached" but no file is attached: you get a reminder before it leaves.
+              </p>
+            </div>
+
+            {/* Concrete Sample Card */}
+            <div className="mt-6 p-3 border-2 border-[var(--color-red)] bg-[var(--color-red-surface)] text-xs font-mono" style={{ color: 'var(--color-red)' }}>
+              <div className="font-bold flex items-center gap-1.5 mb-1">
+                <AlertCircle className="w-3.5 h-3.5" /> MISSING ATTACHMENT HOLD
+              </div>
+              <p className="text-[11px] font-body opacity-90 leading-tight">
+                Held draft because "attached" was mentioned with 0 attachments found.
+              </p>
+            </div>
+          </Panel>
+
+          {/* Tile 4: Sender Trust */}
+          <Panel className="flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-[var(--bg-canvas)] border border-[var(--color-line-strong)]">
+                  PROTOCOL 04
+                </span>
+                <span className="font-mono text-[10px] text-amber-500 font-semibold">
+                  LOOK-ALIKE GUARD
+                </span>
+              </div>
+              <h3 className="text-xl font-bold font-display mb-2">Sender Trust</h3>
+              <p className="text-xs sm:text-sm font-body leading-relaxed opacity-80" style={{ color: 'var(--color-muted)' }}>
+                A mail from paypa1.com pretends to be PayPal: flagged as a look-alike spoof before you reply.
+              </p>
+            </div>
+
+            {/* Concrete Sample Card */}
+            <div className="mt-6 p-3 border-2 border-[var(--color-line-strong)] bg-[var(--bg-canvas)] text-xs font-mono">
+              <div className="flex items-center justify-between pb-1 border-b border-[var(--color-line)] text-[10px]">
+                <span className="text-rose-500 font-bold">DOMAIN: paypa1.com</span>
+                <span className="text-[9px] px-1 bg-rose-500/10 text-rose-500">HOMOGLYPH</span>
+              </div>
+              <p className="mt-2 text-[11px] font-body opacity-80 leading-tight">
+                Does not match verified paypal.com records. Triage score escalated to Suspicious.
+              </p>
+            </div>
+          </Panel>
+
+          {/* Tile 5: Voice Commands */}
+          <Panel className="flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-[var(--bg-canvas)] border border-[var(--color-line-strong)]">
+                  PROTOCOL 05
+                </span>
+                <span className="font-mono text-[10px] text-teal-500 font-semibold">
+                  VOICE DISPATCH
+                </span>
+              </div>
+              <h3 className="text-xl font-bold font-display mb-2">Voice Commands</h3>
+              <p className="text-xs sm:text-sm font-body leading-relaxed opacity-80" style={{ color: 'var(--color-muted)' }}>
+                Say "Prof. Sharma ko Thursday confirm kar do": a draft appears, it never approves itself.
+              </p>
+            </div>
+
+            {/* Concrete Sample Card */}
+            <div className="mt-6 p-3 border-2 border-[var(--color-line-strong)] bg-[var(--bg-canvas)] text-xs font-mono">
+              <div className="flex items-center gap-2 mb-1.5 text-[11px] font-bold" style={{ color: 'var(--color-teal)' }}>
+                <Mic className="w-3.5 h-3.5 animate-pulse" />
+                <span>TRANSCRIPT PARSED</span>
+              </div>
+              <p className="text-[11px] font-body opacity-80 italic">
+                "Draft prepared for Prof. Sharma. Waiting for your manual review."
+              </p>
+            </div>
+          </Panel>
+
+          {/* Tile 6: Deadlines to Calendar */}
+          <Panel className="md:col-span-2 lg:col-span-3 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-[var(--bg-canvas)] border border-[var(--color-line-strong)]">
+                  PROTOCOL 06
+                </span>
+                <span className="font-mono text-[10px] text-teal-600 dark:text-teal-400 font-semibold">
+                  ICS CALENDAR FILE EXPORT
+                </span>
+              </div>
+              <h3 className="text-xl font-bold font-display mb-1.5">Deadlines to Calendar</h3>
+              <p className="text-xs sm:text-sm font-body leading-relaxed opacity-80" style={{ color: 'var(--color-muted)' }}>
+                "Submit by Friday 5 PM" becomes a calendar file; always double-check the date before importing.
+              </p>
+            </div>
+
+            <div className="shrink-0 p-3 border-2 border-[var(--color-line-strong)] bg-[var(--bg-canvas)] flex items-center gap-3 font-mono text-xs">
+              <Calendar className="w-5 h-5 text-emerald-500" />
+              <div>
+                <span className="font-bold block">Friday, 5:00 PM</span>
+                <span className="text-[10px] opacity-60">Exportable as .ics file</span>
+              </div>
+            </div>
+          </Panel>
+
+        </div>
+      </div>
+
+      {/* =========================================================================
+          FOOTER
+          ========================================================================= */}
+      <footer className="w-full border-t-2 border-dashed border-[var(--color-line-strong)] py-8 font-mono text-xs opacity-75">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-bold font-display text-sm">MAILMIND AI</span>
+            <span>//</span>
+            <span>THE SORTING ROOM</span>
+            <span>•</span>
+            <span className="opacity-75">A student project</span>
+          </div>
+
+          <div className="flex items-center gap-4 text-[11px]">
+            <a href="#privacy" className="hover:underline">Privacy Notice</a>
+            <span>•</span>
+            <a href="#terms" className="hover:underline">Terms of Service</a>
+            <span>•</span>
+            <a href="#design" onClick={(e) => { e.preventDefault(); window.location.hash = '#design'; }} className="hover:underline font-bold text-[var(--color-red)]">
+              Design Catalog [/design]
+            </a>
+          </div>
+        </div>
       </footer>
     </div>
   );

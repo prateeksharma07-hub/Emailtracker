@@ -29,6 +29,64 @@ import {
 import { apiFetch } from '../../utils/api';
 
 /**
+ * Safely format findings that may be strings or { signal, reason } objects
+ */
+function formatFinding(finding) {
+  if (!finding) return '';
+  if (typeof finding === 'string') return finding;
+  if (finding.reason) {
+    return finding.signal ? `[${finding.signal}] ${finding.reason}` : finding.reason;
+  }
+  if (finding.signal) return finding.signal;
+  try {
+    return JSON.stringify(finding);
+  } catch (_) {
+    return String(finding);
+  }
+}
+
+/**
+ * CheckpointErrorBoundary: Guards CheckpointView from React 19 rendering crashes
+ */
+class CheckpointErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[Checkpoint X-Ray Error Caught]', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 rounded-3xl bg-rose-500/10 border-2 border-rose-500/30 text-center space-y-4 font-mono text-rose-300 my-6">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/20 flex items-center justify-center mx-auto text-rose-400 text-xl font-bold">
+            ⚠️
+          </div>
+          <h3 className="text-base font-bold text-rose-200">Checkpoint X-Ray Inspector Encountered an Issue</h3>
+          <p className="text-xs max-w-md mx-auto text-rose-300/80">
+            {this.state.error?.message || 'An unexpected rendering error occurred while displaying message diagnostics.'}
+          </p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer"
+          >
+            Reset Scanner
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
  * CheckpointView — MailMind AI Email Firewall (Phase 1: Shield + X-Ray)
  * 
  * Airport security / customs control interface contrasting:
@@ -37,7 +95,7 @@ import { apiFetch } from '../../utils/api';
  * STRICT SECURITY:
  * Pure React text tokenization. ZERO dangerouslySetInnerHTML.
  */
-export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
+function CheckpointViewInner({ initialEmailId, onSelectEmailById }) {
   const [emails, setEmails] = useState([]);
   const [selectedEmailId, setSelectedEmailId] = useState(initialEmailId || null);
   const [scanData, setScanData] = useState(null);
@@ -146,11 +204,14 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
       setErrorNotice(null);
       const res = await apiFetch(`/api/shield/rescan/${selectedEmailId}`, { method: 'POST' });
       const data = await res.json();
-      if (data.success) {
-        setScanData(data);
+      if (data.success && data.scan) {
+        setScanData(data.scan);
         fetchStats();
         // Update local email item in list
-        setEmails(prev => prev.map(e => e.id === selectedEmailId ? { ...e, shield_verdict: data.verdict } : e));
+        setEmails(prev => prev.map(e => e.id === selectedEmailId ? { ...e, shield_verdict: data.scan.verdict } : e));
+      } else if (data.success) {
+        await fetchScanDetail(selectedEmailId);
+        fetchStats();
       } else {
         setErrorNotice(data.error || 'Rescan failed');
       }
@@ -207,7 +268,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
     const aiText = scanData.aiText || '';
     const hiddenSegments = scanData.hiddenSegments || [];
 
-    if (!hiddenSegments || hiddenSegments.length === 0) {
+    if (!hiddenSegments || hiddenSegments.length === 0 || !aiText) {
       return (
         <span className="text-slate-300 font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
           {aiText || '(Empty content)'}
@@ -216,20 +277,43 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
     }
 
     // Build ranges to highlight
-    const segments = [];
-    let currentIdx = 0;
+    const validHidden = hiddenSegments.filter(h => h && h.text && typeof h.text === 'string' && h.text.trim().length > 0);
+    const ranges = [];
+    let searchCursor = 0;
 
-    // Sort hidden segments by appearance in aiText
-    const sortedHidden = [...hiddenSegments]
-      .filter(h => h.text && h.text.trim().length > 0)
-      .map(h => ({
-        ...h,
-        index: aiText.indexOf(h.text)
-      }))
-      .filter(h => h.index !== -1)
-      .sort((a, b) => a.index - b.index);
+    for (const item of validHidden) {
+      const idx = aiText.indexOf(item.text, searchCursor);
+      if (idx !== -1) {
+        ranges.push({
+          start: idx,
+          end: idx + item.text.length,
+          item
+        });
+        searchCursor = idx + item.text.length;
+      } else {
+        const fallbackIdx = aiText.indexOf(item.text);
+        if (fallbackIdx !== -1) {
+          ranges.push({
+            start: fallbackIdx,
+            end: fallbackIdx + item.text.length,
+            item
+          });
+        }
+      }
+    }
 
-    if (sortedHidden.length === 0) {
+    ranges.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+    const nonOverlapping = [];
+    let lastEnd = 0;
+    for (const r of ranges) {
+      if (r.start >= lastEnd) {
+        nonOverlapping.push(r);
+        lastEnd = r.end;
+      }
+    }
+
+    if (nonOverlapping.length === 0) {
       return (
         <span className="text-slate-300 font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
           {aiText}
@@ -237,29 +321,29 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
       );
     }
 
-    sortedHidden.forEach((item, i) => {
-      // Normal text before hidden segment
-      if (item.index > currentIdx) {
+    const segments = [];
+    let currentIdx = 0;
+
+    nonOverlapping.forEach((range, i) => {
+      if (range.start > currentIdx) {
         segments.push({
           type: 'normal',
           key: `norm-${i}`,
-          text: aiText.slice(currentIdx, item.index)
+          text: aiText.slice(currentIdx, range.start)
         });
       }
 
-      // Hidden adversarial segment
       segments.push({
         type: 'hidden',
         key: `hidden-${i}`,
-        text: item.text,
-        reason: item.reason,
-        segmentType: item.type
+        text: range.item.text,
+        reason: range.item.reason,
+        segmentType: range.item.type
       });
 
-      currentIdx = item.index + item.text.length;
+      currentIdx = range.end;
     });
 
-    // Remainder text
     if (currentIdx < aiText.length) {
       segments.push({
         type: 'normal',
@@ -280,7 +364,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
         <mark
           key={seg.key}
           className="relative inline-block bg-rose-500/25 border border-rose-500 text-rose-200 px-1.5 py-0.5 rounded my-0.5 font-bold shadow-xs transition-all hover:bg-rose-500/40 select-text"
-          title={`Hidden Vector [${seg.segmentType}]: ${seg.reason}`}
+          title={`Hidden Vector [${seg.segmentType}]: ${seg.reason || ''}`}
         >
           <span className="inline-flex items-center space-x-1 text-[10px] uppercase font-mono tracking-wider bg-rose-950/80 text-rose-400 px-1 py-0.2 rounded border border-rose-800/80 mr-1.5 align-middle select-none">
             <ShieldAlert className="w-2.5 h-2.5 text-rose-400 inline" />
@@ -371,19 +455,19 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
           <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
             <div className="px-3.5 py-2 rounded-2xl bg-slate-900/90 border border-slate-800">
               <span className="text-[10px] uppercase font-mono text-slate-400 block">Total Scanned</span>
-              <span className="text-sm font-black font-mono text-white">{scanStats?.totalScanned || 0}</span>
+              <span className="text-sm font-black font-mono text-white">{scanStats?.totalScanned ?? scanStats?.total ?? 0}</span>
             </div>
             <div className="px-3.5 py-2 rounded-2xl bg-rose-950/40 border border-rose-900/60">
               <span className="text-[10px] uppercase font-mono text-rose-400 block">Detained (Blocked)</span>
-              <span className="text-sm font-black font-mono text-rose-400">{scanStats?.detained || 0}</span>
+              <span className="text-sm font-black font-mono text-rose-400">{scanStats?.detained ?? scanStats?.DETAINED ?? 0}</span>
             </div>
             <div className="px-3.5 py-2 rounded-2xl bg-amber-950/40 border border-amber-900/60">
               <span className="text-[10px] uppercase font-mono text-amber-400 block">Suspicious</span>
-              <span className="text-sm font-black font-mono text-amber-400">{scanStats?.suspicious || 0}</span>
+              <span className="text-sm font-black font-mono text-amber-400">{scanStats?.suspicious ?? scanStats?.SUSPICIOUS ?? 0}</span>
             </div>
             <div className="px-3.5 py-2 rounded-2xl bg-emerald-950/40 border border-emerald-900/60">
               <span className="text-[10px] uppercase font-mono text-emerald-400 block">Cleared</span>
-              <span className="text-sm font-black font-mono text-emerald-400">{scanStats?.cleared || 0}</span>
+              <span className="text-sm font-black font-mono text-emerald-400">{scanStats?.cleared ?? scanStats?.CLEARED ?? 0}</span>
             </div>
 
             <button
@@ -536,14 +620,14 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     <div className="flex items-center space-x-2">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Target Message ID:</span>
                       <span className="text-xs font-mono font-bold text-violet-600 dark:text-violet-400 truncate max-w-[200px]">
-                        {scanData.email?.id || selectedEmailId}
+                        {scanData.emailId || scanData.id || scanData.email?.id || selectedEmailId}
                       </span>
                     </div>
                     <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
-                      {scanData.email?.subject || '(No Subject)'}
+                      {scanData.subject || scanData.email?.subject || '(No Subject)'}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      Sender: &lt;{scanData.email?.sender}&gt;
+                      Sender: &lt;{scanData.sender || scanData.email?.sender || 'Unknown'}&gt;
                     </p>
                   </div>
 
@@ -604,9 +688,9 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     </span>
                     <div className="flex items-baseline justify-center space-x-1">
                       <span className={`text-3xl font-black font-mono ${
-                        scanData.threatScore >= 60 ? 'text-rose-500' : scanData.threatScore >= 25 ? 'text-amber-500' : 'text-emerald-500'
+                        (scanData.threatScore ?? 0) >= 60 ? 'text-rose-500' : (scanData.threatScore ?? 0) >= 25 ? 'text-amber-500' : 'text-emerald-500'
                       }`}>
-                        {scanData.threatScore}
+                        {scanData.threatScore ?? 0}
                       </span>
                       <span className="text-xs font-mono text-slate-400">/ 100</span>
                     </div>
@@ -614,9 +698,9 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                     <div className="w-full bg-slate-200 dark:bg-white/10 h-1.5 rounded-full overflow-hidden mt-2">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          scanData.threatScore >= 60 ? 'bg-rose-500' : scanData.threatScore >= 25 ? 'bg-amber-500' : 'bg-emerald-500'
+                          (scanData.threatScore ?? 0) >= 60 ? 'bg-rose-500' : (scanData.threatScore ?? 0) >= 25 ? 'bg-amber-500' : 'bg-emerald-500'
                         }`}
-                        style={{ width: `${Math.min(100, Math.max(5, scanData.threatScore))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(5, scanData.threatScore ?? 0))}%` }}
                       />
                     </div>
                   </div>
@@ -660,8 +744,8 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                           <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5 font-mono">
                             {layer.findings && layer.findings.length > 0 ? (
                               layer.findings.slice(0, 2).map((f, fi) => (
-                                <p key={fi} className="truncate text-rose-400">
-                                  • {f}
+                                <p key={fi} className="truncate text-rose-400" title={formatFinding(f)}>
+                                  • {formatFinding(f)}
                                 </p>
                               ))
                             ) : (
@@ -781,7 +865,7 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
                           <span className="text-[10px] font-mono uppercase font-bold text-slate-400">Layer 4 Findings:</span>
                           {layer4.findings.map((f, i) => (
                             <p key={i} className="text-xs font-mono text-rose-500 dark:text-rose-400">
-                              • {f}
+                              • {formatFinding(f)}
                             </p>
                           ))}
                         </div>
@@ -907,5 +991,13 @@ export default function CheckpointView({ initialEmailId, onSelectEmailById }) {
       </div>
 
     </div>
+  );
+}
+
+export default function CheckpointView(props) {
+  return (
+    <CheckpointErrorBoundary>
+      <CheckpointViewInner {...props} />
+    </CheckpointErrorBoundary>
   );
 }
