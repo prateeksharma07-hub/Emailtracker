@@ -16,11 +16,20 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 const defaultDbPath = path.resolve(__dirname, '..', 'mailmind.db');
 export const dbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : defaultDbPath;
 
+if (process.env.SQLITE_PATH) {
+  const dir = path.dirname(dbPath);
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (_) {}
+  }
+}
+
 // Ephemeral storage warning on production deployments without persistent disk
 if (process.env.NODE_ENV === 'production') {
   const isDefaultEphemeral = !process.env.SQLITE_PATH || dbPath === defaultDbPath;
   if (isDefaultEphemeral) {
-    console.warn('⚠️ [WARN] Free hosting par data restart par reset ho sakta hai.');
+    console.warn('⚠️ [WARN] Ephemeral disk detected. Free hosting par data restart par reset ho sakta hai. Persistent disk ke liye SQLITE_PATH set karein.');
   }
 }
 

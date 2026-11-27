@@ -352,3 +352,30 @@ Phase 2 introduces automated human-in-the-loop executive productivity workflows 
 | **CSRF Defense** | Single-use 15-minute cryptographic state validation on OAuth callback. |
 | **Privacy Guard** | Local regex filtering shielding OTPs, passwords, and bank accounts. |
 | **Rate Limiting** | Auth endpoints and sync APIs guarded with `express-rate-limit`. |
+
+---
+
+## 🚀 Deploying to Render
+
+MailMind AI is configured for one-click deployment using Render Blueprints (`render.yaml`).
+
+### Option 1: Render Blueprint (Recommended)
+1. Go to the [Render Dashboard](https://dashboard.render.com/) and click **New +** > **Blueprint**.
+2. Connect your Git repository. Render will automatically detect [`render.yaml`](./render.yaml).
+3. Populate the required environment variables:
+   - `GOOGLE_CLIENT_ID` & `GOOGLE_CLIENT_SECRET` (from Google Cloud Console)
+   - `GOOGLE_REDIRECT_URI` (`https://<your-render-app>.onrender.com/api/auth/callback` or custom domain)
+   - `GROQ_API_KEY` (`gsk_...` from Groq Console)
+   - `TOKEN_ENC_KEY` (64-character hex key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+   - `SESSION_SECRET` (random hex string for cookie signing)
+   - `APP_URL` (`https://<your-render-app>.onrender.com` or custom domain)
+4. Click **Apply**. Render will run `npm install && npm run build` and start the server with `npm start`.
+
+### Option 2: Render Manual Web Service
+- **Environment**: Node
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm start`
+- **Health Check Path**: `/api/health`
+- **Node Version**: `>=24.0.0`
+- *(Optional Persistent Disk)*: Add a persistent disk mounted at `/var/data` and set `SQLITE_PATH=/var/data/mailmind.db`. On free tier without a persistent disk, an ephemeral warning will be logged.
+

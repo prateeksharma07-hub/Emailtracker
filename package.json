@@ -3,16 +3,17 @@
   "version": "1.0.0",
   "description": "MAILMIND AI — Autonomous, Privacy-First AI Email Management & Automation Agent",
   "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "start": "node server/index.js",
     "build": "npm --prefix server install && npm --prefix client install && npm --prefix client run build",
+    "test": "npm --prefix server test",
     "server": "npm --prefix server start",
     "client": "npm --prefix client run dev",
     "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\"",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install"
-  },
-  "engines": {
-    "node": ">=20.0.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

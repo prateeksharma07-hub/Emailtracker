@@ -11,6 +11,9 @@
     "shield:bench": "node tests/shield/benchmark.js",
     "regret:smoke": "node scripts/smokeRegret.js"
   },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "cheerio": "^1.2.0",
