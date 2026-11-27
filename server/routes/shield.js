@@ -31,8 +31,19 @@ router.get('/emails/:id', async (req, res) => {
       scan = await scanAndSaveShieldResult(emailId, userId);
     }
 
-    const layers = typeof scan.layers_json === 'string' ? JSON.parse(scan.layers_json) : (scan.layers || []);
-    const hiddenSegments = typeof scan.hidden_segments_json === 'string' ? JSON.parse(scan.hidden_segments_json) : (scan.hiddenSegments || []);
+    let layers = [];
+    try {
+      layers = typeof scan.layers_json === 'string' ? JSON.parse(scan.layers_json) : (scan.layers || []);
+    } catch (_) {
+      layers = [];
+    }
+
+    let hiddenSegments = [];
+    try {
+      hiddenSegments = typeof scan.hidden_segments_json === 'string' ? JSON.parse(scan.hidden_segments_json) : (scan.hiddenSegments || []);
+    } catch (_) {
+      hiddenSegments = [];
+    }
 
     // Additive sender profile & header meta
     let headersMeta = null;
@@ -79,11 +90,41 @@ router.post('/rescan/:id', async (req, res) => {
     const userId = req.user.id;
     const emailId = req.params.id;
 
+    const email = db.prepare('SELECT id, subject, sender, sender_name FROM emails WHERE id = ? AND user_id = ?').get(emailId, userId);
+    if (!email) {
+      return res.status(404).json({ success: false, error: 'Email not found or access denied.' });
+    }
+
     const result = await scanAndSaveShieldResult(emailId, userId);
+
+    let headersMeta = null;
+    let senderProfile = null;
+    try {
+      headersMeta = db.prepare('SELECT * FROM email_headers_meta WHERE email_id = ? AND user_id = ?').get(emailId, userId) || null;
+      const senderEmail = headersMeta?.from_addr || email.sender;
+      if (senderEmail) {
+        senderProfile = db.prepare('SELECT * FROM sender_profiles WHERE user_id = ? AND sender_email = ?').get(userId, senderEmail) || null;
+      }
+    } catch (ignoreErr) {}
+
     res.json({
       success: true,
       message: 'Email successfully rescanned through Shield firewall.',
-      scan: result
+      scan: {
+        id: result.scanId || result.id,
+        emailId,
+        subject: email.subject,
+        sender: email.sender_name || email.sender,
+        verdict: result.verdict,
+        threatScore: result.threatScore,
+        visibleText: result.visibleText,
+        aiText: result.aiText,
+        layers: result.layers || [],
+        hiddenSegments: result.hiddenSegments || [],
+        senderProfile,
+        headersMeta,
+        createdAt: new Date().toISOString()
+      }
     });
   } catch (err) {
     console.error('[Shield Rescan Error]', err.message);
@@ -111,14 +152,24 @@ router.get('/stats', (req, res) => {
       CLEARED: 0,
       SUSPICIOUS: 0,
       DETAINED: 0,
-      total: 0
+      cleared: 0,
+      suspicious: 0,
+      detained: 0,
+      total: 0,
+      totalScanned: 0
     };
 
     rows.forEach(r => {
-      if (stats[r.verdict] !== undefined) {
-        stats[r.verdict] = r.count;
+      const v = r.verdict;
+      if (stats[v] !== undefined) {
+        stats[v] = r.count;
+      }
+      const vLower = (v || '').toLowerCase();
+      if (stats[vLower] !== undefined) {
+        stats[vLower] = r.count;
       }
       stats.total += r.count;
+      stats.totalScanned += r.count;
     });
 
     res.json({

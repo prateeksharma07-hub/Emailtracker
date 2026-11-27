@@ -17,6 +17,8 @@ server/.env.*
 *.db-wal
 *.db-journal
 server/*.db*
+server/backups/
+*.backup.db
 
 # Build outputs
 dist/

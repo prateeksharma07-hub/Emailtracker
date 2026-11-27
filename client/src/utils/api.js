@@ -3,6 +3,9 @@
  * and automatic 401 unauthorized interception.
  */
 export async function apiFetch(url, options = {}) {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  const resolvedUrl = (baseUrl && url.startsWith('/api')) ? `${baseUrl.replace(/\/$/, '')}${url}` : url;
+
   const mergedOptions = {
     ...options,
     credentials: 'include',
@@ -13,7 +16,7 @@ export async function apiFetch(url, options = {}) {
   };
 
   try {
-    const res = await fetch(url, mergedOptions);
+    const res = await fetch(resolvedUrl, mergedOptions);
     if (res.status === 401 && !url.includes('/api/auth/me')) {
       window.dispatchEvent(new CustomEvent('mailmind:unauthorized', { detail: { url } }));
     }

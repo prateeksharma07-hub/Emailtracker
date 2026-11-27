@@ -29,16 +29,77 @@ import sendersRouter from './routes/senders.js';
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5174';
 
-// Middleware
+// Trust reverse proxy (Render / Vercel) for secure cookies and protocol detection
+app.set('trust proxy', 1);
+
+// Helper to resolve dynamically allowed origins
+function getAllowedOrigins() {
+  const allowed = [];
+  if (process.env.CLIENT_ORIGIN) {
+    process.env.CLIENT_ORIGIN.split(',').forEach(o => {
+      const trimmed = o.trim();
+      if (trimmed) {
+        try { allowed.push(new URL(trimmed).origin); } catch (_) { allowed.push(trimmed); }
+      }
+    });
+  }
+  if (process.env.APP_URL) {
+    try { allowed.push(new URL(process.env.APP_URL).origin); } catch (_) { allowed.push(process.env.APP_URL); }
+  }
+  if (process.env.CLIENT_URL) {
+    try { allowed.push(new URL(process.env.CLIENT_URL).origin); } catch (_) { allowed.push(process.env.CLIENT_URL); }
+  }
+  // In development and testing, automatically include localhost variants
+  if (process.env.NODE_ENV !== 'production') {
+    allowed.push(
+      'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175',
+      'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175'
+    );
+  }
+  return [...new Set(allowed)];
+}
+
+// CORS middleware
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://127.0.0.1:5174', 'http://127.0.0.1:5173'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = getAllowedOrigins();
+    if (allowed.length === 0 || allowed.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   credentials: true
 }));
+
 app.use(cookieParser(process.env.SESSION_SECRET || 'mailmind-session-secret'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 1. Enforce Cache-Control: no-store on all /api responses (zero caching of private user data)
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+// 2. CSRF / Origin Validation: Compares incoming request Origin against allowed origins
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const origin = req.headers.origin;
+    if (origin) {
+      const allowed = getAllowedOrigins();
+      if (allowed.length > 0 && !allowed.includes(origin)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Request origin does not match configured APP_URL or CLIENT_ORIGIN.',
+          code: 'CSRF_ORIGIN_MISMATCH'
+        });
+      }
+    }
+  }
+  next();
+});
 
 // Initialize SQLite database
 initDb();
@@ -143,11 +204,48 @@ app.use((err, req, res, next) => {
   });
 });
 
+/**
+ * Validates required environment variables for deployment.
+ * Never prints secret values to console/logs; only lists missing variable names.
+ */
+export function validateEnvironment(env = process.env, shouldExit = true) {
+  const isProduction = env.NODE_ENV === 'production';
+  const REQUIRED_VARS = [
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
+    'GROQ_API_KEY',
+    'TOKEN_ENC_KEY',
+    'SESSION_SECRET'
+  ];
+
+  if (isProduction || env.NODE_ENV === 'test_prod_validation') {
+    REQUIRED_VARS.push('APP_URL');
+  }
+
+  const missing = REQUIRED_VARS.filter(key => {
+    const val = env[key];
+    return !val || typeof val !== 'string' || val.trim() === '' || val.startsWith('your_');
+  });
+
+  if (missing.length > 0) {
+    const errorMsg = `[Startup Error] Missing required environment variable(s): ${missing.join(', ')}. Please configure them before starting the server.`;
+    console.error(errorMsg);
+    if (shouldExit && process.env.NODE_ENV !== 'test' && env.NODE_ENV !== 'test') {
+      process.exit(1);
+    }
+    const err = new Error(errorMsg);
+    err.missingVars = missing;
+    throw err;
+  }
+}
+
 export { app };
 export default app;
 
 const isMainModule = Boolean(process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]));
 if (isMainModule && process.env.NODE_ENV !== 'test') {
+  validateEnvironment();
   app.listen(PORT, () => {
     console.log(`===============================================`);
     console.log(`🧠 MAILMIND AI Multi-User Server running on port ${PORT}`);
@@ -155,6 +253,7 @@ if (isMainModule && process.env.NODE_ENV !== 'test') {
     console.log(`⚡ Groq AI Active: ${Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.startsWith('gsk_'))}`);
     console.log(`📧 Google OAuth Configured: ${Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id_here')}`);
     console.log(`🔒 AES-256-GCM Token Encryption: Active`);
+    console.log(`🌐 Public App URL: ${process.env.APP_URL || 'Not specified'}`);
     console.log(`===============================================`);
   });
 }
