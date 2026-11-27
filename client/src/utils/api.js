@@ -14,7 +14,7 @@ export async function apiFetch(url, options = {}) {
 
   try {
     const res = await fetch(url, mergedOptions);
-    if (res.status === 401) {
+    if (res.status === 401 && !url.includes('/api/auth/me')) {
       window.dispatchEvent(new CustomEvent('mailmind:unauthorized', { detail: { url } }));
     }
     return res;
